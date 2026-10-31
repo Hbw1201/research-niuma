@@ -11,7 +11,7 @@ import { scanSkills } from './skills.mjs';
 import { modelCatalog } from './models.mjs';
 
 const publicDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../public');
-const assets = { '/':'index.html', '/index.html':'index.html', '/app.js':'app.js', '/workflow-ui.js':'workflow-ui.js', '/team-ui.js':'team-ui.js', '/pipeline-ui.js':'pipeline-ui.js', '/research-stages.js':'research-stages.js', '/pipeline.css':'pipeline.css', '/styles.css':'styles.css', '/favicon.svg':'favicon.svg' };
+const assets = { '/':'index.html', '/index.html':'index.html', '/app.js':'app.js', '/workflow-ui.js':'workflow-ui.js', '/team-ui.js':'team-ui.js', '/leader-ui.js':'leader-ui.js', '/pipeline-ui.js':'pipeline-ui.js', '/research-stages.js':'research-stages.js', '/pipeline.css':'pipeline.css', '/styles.css':'styles.css', '/favicon.svg':'favicon.svg' };
 const mime = { '.html':'text/html; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.css':'text/css; charset=utf-8', '.svg':'image/svg+xml' };
 
 export async function startServer({ workspace = process.cwd(), port = 4318, scanner = discover } = {}) {
@@ -20,7 +20,7 @@ export async function startServer({ workspace = process.cwd(), port = 4318, scan
   let scan = null, scanning = null, origin = '', closing = false;
   let workflow = new Workflow(store, runner, () => scan);
   const clients = new Set();
-  const snapshot = () => ({ ...store.state, workspace: store.workspace, rules:store.rules(), models:modelCatalog(), scan, token, version: '0.4.0' });
+  const snapshot = () => ({ ...store.state, workspace: store.workspace, rules:store.rules(), models:modelCatalog(), scan, token, version: '0.5.0' });
   let broadcastTimer;
   const broadcast = () => { clearTimeout(broadcastTimer); broadcastTimer = setTimeout(()=>{ for (const res of clients) res.write('event: change\ndata: {}\n\n'); },100); };
   runner.on('change',broadcast);
@@ -39,7 +39,7 @@ export async function startServer({ workspace = process.cwd(), port = 4318, scan
       const url = new URL(req.url,origin), route=url.pathname;
       if(req.method==='GET') {
         if(route==='/api/state') return json(res,200,snapshot());
-        if(route==='/api/health') return json(res,200,{ok:true,version:'0.4.0'});
+        if(route==='/api/health') return json(res,200,{ok:true,version:'0.5.0'});
         if(route==='/api/rules')return json(res,200,store.rules(url.searchParams.get('project')||undefined));
         if(route==='/api/skills'){const p=url.searchParams.get('project')?store.project(url.searchParams.get('project')):null;return json(res,200,{skills:scanSkills(store.workspace,[...(store.state.settings.skillRoots||[]),...(p?['.claude','.codex','.agents'].map(dir=>path.join(p.directory,dir,'skills')):[])])});}
         if(route==='/api/folders') {
@@ -84,12 +84,12 @@ export async function startServer({ workspace = process.cwd(), port = 4318, scan
       if(route==='/api/scan')return json(res,200,await refresh());
       if(route==='/api/settings') {
         assert(!runner.children.size&&!workflow.collaboration.active.size,'运行任务期间不能修改 CLI 设置。',409);
-        assert(Number.isInteger(body.concurrency)&&body.concurrency>=1&&body.concurrency<=4,'并发数必须为 1–4。');
+        assert(Number.isInteger(body.concurrency)&&body.concurrency>=1&&body.concurrency<=16,'并发数必须为 1–16。');
         for(const key of ['ccPath','cxPath'])assert(typeof body[key]==='string'&&body[key].length<4096,'程序路径无效。');
         store.state.settings={ccPath:body.ccPath.trim(),cxPath:body.cxPath.trim(),concurrency:body.concurrency};store.save();await refresh();broadcast();return json(res,200,{ok:true});
       }
       if(route==='/api/projects') {const p=store.newProject(body);broadcast();return json(res,201,p);}
-      const action=route.match(/^\/api\/projects\/([a-f0-9-]+)\/(brainstorm|review|plan|execute|stop|summarize|bind-cc|handoff|chat|activate|architecture|skills|models|team-chat|accept-team|collaborate|message|decide|stage-review)$/);
+      const action=route.match(/^\/api\/projects\/([a-f0-9-]+)\/(brainstorm|review|plan|execute|stop|summarize|bind-cc|handoff|chat|activate|architecture|skills|models|team-chat|accept-team|collaborate|message|decide|stage-review|autonomy)$/);
       if(action) {
         const [,id,verb]=action;store.project(id);
         if(verb==='brainstorm')workflow.brainstorm(id,Boolean(body.revise));
@@ -106,6 +106,7 @@ export async function startServer({ workspace = process.cwd(), port = 4318, scan
         if(verb==='chat')workflow.chat(id,body.message);
         if(verb==='activate')workflow.activate(id);
         if(verb==='architecture')workflow.configure(id,body);
+        if(verb==='autonomy')workflow.configureAutonomy(id,body);
         if(verb==='models')workflow.configureModels(id,body);
         if(verb==='team-chat')workflow.teamChat(id,body.message);
         if(verb==='accept-team')workflow.acceptTeam(id,body.proposalId);

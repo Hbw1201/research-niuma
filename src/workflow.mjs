@@ -5,6 +5,8 @@ import { assert, text, uid, now } from './store.mjs';
 import { scanSkills, loadSelectedSkills } from './skills.mjs';
 import {teamSchema,modelName,validateTeam,teamPrompt,teamMarkdown,recordModelChange} from './team.mjs';
 import {Collaboration} from './collaboration.mjs';
+import {Leadership,isAuto,activeWorkers,availableModels,validateAutonomy} from './leadership.mjs';
+import {modelCatalog} from './models.mjs';
 import {researchStages,stageIds} from '../public/research-stages.js';
 
 export const roles = [
@@ -45,10 +47,19 @@ export function validatePlan(data, questions, workers) {
 }
 
 export class Workflow {
-  constructor(store, runner, getScan) { this.store = store; this.runner = runner; this.getScan = getScan; this.busy = new Set(); this.pumps = new Map(); this.collaboration=new Collaboration(this); }
+  constructor(store, runner, getScan) { this.store = store; this.runner = runner; this.getScan = getScan; this.busy = new Set(); this.pumps = new Map(); this.modelSelections=new Map();this.models=modelCatalog;this.collaboration=new Collaboration(this);this.leadership=new Leadership(this); }
   cli(provider) { const cli = this.getScan()?.clis?.[provider]; assert(cli?.available, `${provider === 'cc' ? 'Claude Code' : 'Codex'} 尚未就绪，请先完成本机扫描或在设置中指定程序路径。`, 409); return cli.path; }
   idle(id) { assert(!this.busy.has(id) && !this.pumps.has(id)&&!this.collaboration.active.has(id), '此课题已有任务运行中。', 409); }
   collaborate(id,input={}){return this.collaboration.start(id,input);}
+  configureAutonomy(id,input){
+    const p=this.store.project(id);this.idle(id);const next=validateAutonomy(input);
+    assert(p.architecture.workers.filter(w=>w.pinned).length<=next.maxWorkers,'数量上限不能少于用户固定的 CX 数量。');
+    const retained=new Set(p.architecture.workers.filter(w=>w.pinned||p.tasks.some(t=>t.workerId===w.id&&!t.reportId&&!['completed','superseded'].includes(t.status))).map(w=>w.id));
+    assert(retained.size<=next.maxWorkers,'仍有待办或固定配置的 CX 超过此数量上限，请先完成待办或调整固定成员。');
+    p.autonomy=next;p.collaboration.maxReviews=next.maxReviews;
+    this.store.doc(id,'10-leader-policy.md','CC Leader 自主研究设置',`# CC Leader\n\n模式：${next.mode}\n活跃 CX 上限：${next.maxWorkers}\n并发上限：${next.maxParallel}\n单轮复核上限：${next.maxReviews}\n\n${next.brief}\n\n研究者确认目标与首轮问卷后启动。CC 自主组织团队、调节未固定成员的模型、复核证据、安排替代实验与阶段推进；超出已确认边界或缺少必要输入时请求研究者处理。所有组织调整留存 Markdown。`,'settings');
+    this.runner.changed();
+  }
   stageReview(id,input){
     const p=this.store.project(id);this.idle(id);assert(stageIds.includes(input.stageId),'科研阶段无效。');assert(['confirmed','reopened'].includes(input.action),'阶段操作无效。');
     const comment=text(input.comment,10000);p.research ||= {decisions:[]};
@@ -70,7 +81,6 @@ export class Workflow {
     assert(typeof input.allowCCSwitch==='boolean','动态模型开关无效。');
     assert(Array.isArray(input.allowedModels)&&input.allowedModels.length<=20,'最多允许 20 个动态模型。');
     const allowedModels=[...new Set(input.allowedModels.map(modelName))].filter(Boolean);
-    assert(!input.allowCCSwitch||allowedModels.length,'启用动态切换前，请至少指定一个允许的 CX 模型。');
     p.mentor={model,language};p.modelPolicy={allowCCSwitch:input.allowCCSwitch,allowedModels};
     this.store.doc(id,'07-model-policy.md','模型与输出语言',`# 本课题模型设置\n\nCC：${model||'CLI 默认'}\n\n默认输出语言：${language}\n\n允许 CC 在任务间选择 CX 模型：${input.allowCCSwitch?'是':'否'}\n\n允许范围：${allowedModels.join(', ')||'无'}\n`,'settings');this.runner.changed();
   }
@@ -78,17 +88,18 @@ export class Workflow {
     const p=this.store.project(id),executable=this.cli('cc');this.idle(id);
     const content=text(message,12000),previousStatus=p.status;
     p.teamConversation.push({id:uid(),role:'user',content,at:now()});this.writeTeamConversation(p);
-    const catalog=this.catalog(p),prompt=teamPrompt(p,content,catalog);
+    const catalog=this.catalog(p),prompt=teamPrompt(p,content,catalog)+(isAuto(p)?'\n当前已启用 Auto Research：方案会直接执行，不需要另行采纳。遵守本项目上限 '+JSON.stringify(p.autonomy)+'；用户固定成员必须原样保留。可用模型标识：'+JSON.stringify(availableModels(p,this.models())):'');
     return this.launch(id,'team_chatting',async()=>{
       const result=await this.runner.run({projectId:id,provider:'cc',kind:'team',title:'CC 导师 · 讨论 CX 分工与 Skills',executable,cwd:this.store.folder(id),prompt,schema:teamSchema,sessionId:p.ccSessionId||undefined});
       const data=structured(result);text(data.message,30000);assert(['clarifying','proposal'].includes(data.phase),'团队讨论阶段无效。');
-      if(data.phase==='proposal')validateTeam(p,data,catalog);
+      if(data.phase==='proposal'&&!isAuto(p))validateTeam(p,data,catalog);
       p.teamProposal=data.phase==='proposal'?{...data,id:uid()}:null;
+      if(p.teamProposal&&isAuto(p)){this.leadership.apply(p,{...data,summary:data.message},{catalog,jobId:result.job.id});p.teamProposal.accepted=true;}
       p.teamConversation.push({id:uid(),role:'assistant',content:data.message,at:now()});
       p.ccSessionId=result.job.sessionId||p.ccSessionId;p.status=previousStatus==='failed'?'draft':previousStatus;
       this.writeTeamConversation(p);
-      if(p.teamProposal)this.store.doc(id,'08-team-proposal.md','CC 推荐的团队与 Skills',`# 待用户确认的团队方案\n\n${data.message}\n\n`+data.workers.map((w,i)=>`## CX-${i+1}\n\n${w.role}\n\n模型：${w.model||'CLI 默认'}\n语言：${w.language||p.mentor.language}\nSkills：${w.skillIds.map(id=>catalog.find(s=>s.id===id)?.name||id).join(', ')||'无'}\n\n理由：${w.reason}`).join('\n\n'),'proposal');
-      this.store.log('CC 已回复团队讨论；推荐方案由研究者确认后生效。',id);
+      if(p.teamProposal)this.store.doc(id,'08-team-proposal.md','CC 推荐的团队与 Skills',`# ${isAuto(p)?'CC Leader 已应用的团队方案':'待用户确认的团队方案'}\n\n${data.message}\n\n`+data.workers.map((w,i)=>`## CX-${i+1}\n\n${w.role}\n\n模型：${w.model||'CLI 默认'}\n语言：${w.language||p.mentor.language}\nSkills：${w.skillIds.map(id=>catalog.find(s=>s.id===id)?.name||id).join(', ')||'无'}\n\n理由：${w.reason}`).join('\n\n'),'proposal');
+      this.store.log(isAuto(p)?'CC Leader 已根据讨论更新团队。':'CC 已回复团队讨论；推荐方案由研究者确认后生效。',id);
     });
   }
   writeTeamConversation(p){this.store.doc(p.id,'09-team-conversation.md','CX 分工讨论',`# ${p.title}：团队讨论\n\n`+p.teamConversation.map(m=>`## ${m.role==='user'?'研究者':'CC 导师'} · ${m.at}\n\n${m.content}`).join('\n\n'),'conversation');}
@@ -161,18 +172,19 @@ export class Workflow {
     const labels={approved:'批准',rejected:'否决',revise:'要求修改',pending:'尚未批阅'};
     return this.store.doc(p.id,`21-decisions-r${p.round || 1}.md`,'研究者批阅记录',`# ${p.title}：研究者决策\n\n`+p.questions.map(q=>`## ${q.id} · ${q.title}\n\n- 决定：${labels[q.decision]}\n- 选择：${q.answer || '—'}\n- 批注：${q.comment || '—'}\n`).join('\n'),'decisions');
   }
-  plan(id) {
-    const p = this.store.project(id), executable = this.cli('cc'); this.idle(id);
+  plan(id,token=null) {
+    const p = this.store.project(id), executable = this.cli('cc'); if(!token)this.idle(id);else assert(this.collaboration.active.get(id)===token,'无效的内部调度。',409);
     assert(!p.tasks.length,'已存在任务计划；请继续执行现有计划。',409);
     assert(p.architecture.confirmed,'请先在课题架构中与 CC 讨论并确认 CX 分工。',409);
     assert(p.questions.length && p.questions.every(q=>['approved','rejected'].includes(q.decision)),'请完成所有问题的批阅；要求修改的题目需先交回 CC 重做。',409);
     assert(p.questions.some(q=>q.decision==='approved'),'没有批准的问题，不能生成执行任务。',409);
     const doc = this.writeDecisions(p), decisions = this.store.readDoc(id,doc.id);
-    const prompt = `你是 CC 导师与调度者。目标：${p.title}\n${p.brief}\n\n本课题 CX 架构：\n${p.architecture.workers.map(w=>`${w.id} (${w.name}): ${w.role}`).join('\n')}\n\n以下来自已写入本地的研究者批阅文件 ${decisions.path}：\n${decisions.content}\n\n遵循正常科研过程：问题澄清、文献缺口、假设与设计、数据准备、最小验证、正式实验、分析复核、写作归档。当前只为批准的问题生成 1–4 个可独立执行的小步骤，不要一次包办全课题；每个步骤返回后 CC 会复核并调度后续。任务需给出 researchStage，取值 question/literature/design/data/pilot/experiments/analysis/writing。，不能实施已否决内容。覆盖全部已批准问题。每个任务必须包含 title、instructions、acceptance、questionIds（只能引用获批 q 编号）和 workerId（必须是上述 CX 的 id，按分工选择）。不同 CX 使用独立目录；同一 CX 的任务按顺序执行，但不要依赖其他 CX 同时产生的文件。为需要跨 CX 串行依赖的工作合并成一个任务。说明必要输入和停止条件；缺少数据、API、文献时必须报告，不得伪造。你负责计划，不执行代码。中文，严格按 Schema 输出。`;
+    const prompt = `你是 CC 导师与调度者。目标：${p.title}\n${p.brief}\n\n本课题 CX 架构：\n${activeWorkers(p).map(w=>`${w.id} (${w.name}): ${w.role}`).join('\n')}\n\n以下来自已写入本地的研究者批阅文件 ${decisions.path}：\n${decisions.content}\n\n遵循正常科研过程：问题澄清、文献缺口、假设与设计、数据准备、最小验证、正式实验、分析复核、写作归档。当前只为批准的问题生成 1–8 个可独立执行的小步骤，不要一次包办全课题；每个步骤返回后 CC 会复核并调度后续。任务需给出 researchStage，取值 question/literature/design/data/pilot/experiments/analysis/writing。，不能实施已否决内容。覆盖全部已批准问题。每个任务必须包含 title、instructions、acceptance、questionIds（只能引用获批 q 编号）和 workerId（必须是上述 CX 的 id，按分工选择）。不同 CX 使用独立目录；同一 CX 的任务按顺序执行，但不要依赖其他 CX 同时产生的文件。为需要跨 CX 串行依赖的工作合并成一个任务。说明必要输入和停止条件；缺少数据、API、文献时必须报告，不得伪造。你负责计划，不执行代码。中文，严格按 Schema 输出。`;
     this.store.doc(id,'29-dispatch-request.md','CC 任务拆解指令',prompt,'request');
-    return this.launch(id,'planning',async()=>{
+    const action=async()=>{
       const result = await this.runner.run({projectId:id,provider:'cc',kind:'plan',title:'CC · 拆解获批任务',executable,cwd:this.store.folder(id),prompt,schema:planSchema,sessionId:p.ccSessionId || undefined});
-      const data=validatePlan(structured(result),p.questions,p.architecture.workers); p.ccSessionId=result.job.sessionId||p.ccSessionId;
+      if(token?.cancelled||this.runner.closing)return;
+      const data=validatePlan(structured(result),p.questions,activeWorkers(p)); p.ccSessionId=result.job.sessionId||p.ccSessionId;
       p.tasks=data.tasks.map((t,i)=>({...t,id:uid(),index:i+1,status:'ready',sessionId:'',error:'',dependsOn:[],researchStage:t.researchStage||'unclassified'}));
       for(const task of p.tasks) {
         const name=`30-task-${task.index}.md`;
@@ -181,7 +193,8 @@ export class Workflow {
         task.documentId=d.id;
       }
       p.status='ready'; this.store.log(`CC 已分派 ${p.tasks.length} 个 CX 任务。`,id);
-    });
+    };
+    return token?action():this.launch(id,'planning',action);
   }
   execute(id, taskId) {
     const p=this.store.project(id),executable=this.cli('cx'); this.idle(id);
@@ -226,8 +239,14 @@ export class Workflow {
     for(const j of this.store.state.jobs.filter(j=>j.projectId===id&&j.status==='running')) {try{this.runner.cancel(j.id);}catch{}}
     this.runner.changed();
   }
-  async chooseModel(p,worker,task,token) {
-    const allowed=p.modelPolicy.allowedModels;assert(worker&&allowed.length,'动态模型策略缺少可选模型。');
+  chooseModel(p,worker,task,token){
+    const pending=this.modelSelections.get(p.id)||new Set();this.modelSelections.set(p.id,pending);
+    const work=this.selectModel(p,worker,task,token).finally(()=>{pending.delete(work);if(!pending.size)this.modelSelections.delete(p.id);});pending.add(work);return work;
+  }
+  async selectModel(p,worker,task,token) {
+    assert(worker,'动态模型策略缺少 CX。');
+    if(worker.pinned){task.model=worker.model;task.modelReason='用户固定此 CX 配置。';return;}
+    const allowed=availableModels(p,this.models());assert(allowed.length,'动态模型策略缺少可选模型。');
     const schema={type:'object',additionalProperties:false,required:['model','reason'],properties:{model:{type:'string',enum:allowed},reason:{type:'string'}}};
     const recent=p.tasks.filter(t=>t.workerId===worker.id&&t.reportId).slice(-2).map(t=>this.store.readDoc(p.id,t.reportId).content.slice(-5000));
     const prompt=`在已获批的任务开始前，为 ${worker.name} 选择 CX 模型。只推荐，不调用工具、不实现任务。只能从允许列表选择：${JSON.stringify(allowed)}。当前模型：${worker.model||'CLI 默认'}。分工：${worker.role}。任务：${task.title}\n${task.instructions||''}\n验收：${task.acceptance||''}\n此前实际报告：${recent.join('\n\n')}\n根据任务复杂度与前次失败/成功证据决定是否需要调整，说明原因。不要编造价格和性能差异；信息不足时优先保持当前模型（若在允许列表）。`;

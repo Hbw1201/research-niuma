@@ -5,6 +5,7 @@ import { recoverUsage } from './usage.mjs';
 
 export const uid = () => randomUUID();
 export const now = () => new Date().toISOString();
+export const defaultAutonomy = (mode = 'auto') => ({mode,maxWorkers:8,maxParallel:4,maxReviews:100,brief:''});
 export const defaultArchitecture = () => ({ mentor:'CC 导师', confirmed:false, parallel:2, workers:[
   {id:'cx-1',name:'CX-01',role:'方法与代码实现',sessionId:''},
   {id:'cx-2',name:'CX-02',role:'数据处理与准备',sessionId:''},
@@ -16,10 +17,12 @@ export function upgradeProject(p) {
   p.architecture ||= defaultArchitecture();p.architecture.confirmed ??= Boolean(p.tasks?.length);
   p.mentor ||= {model:'',language:'简体中文'};
   p.modelPolicy ||= {allowCCSwitch:false,allowedModels:[]};
+  // Existing projects keep their previous operating mode until the user enables Auto Research.
+  p.autonomy ||= defaultAutonomy('assisted');p.teamChanges ||= [];
   p.teamConversation ||= [];p.modelChanges ||= [];
   p.collaboration ||= {state:'idle',maxReviews:8,reviewsUsed:0,messages:[],reviews:[],pendingDecision:null};
   p.collaboration.messages ||= [];p.collaboration.reviews ||= [];
-  for(const w of p.architecture.workers){w.model ??='';w.language ??='';w.skillIds ||= [];}
+  for(const w of p.architecture.workers){w.model ??='';w.language ??='';w.skillIds ||= [];w.active ??= true;w.pinned ??= false;}
 }
 export function assert(condition, message, status = 400) { if (!condition) throw Object.assign(new Error(message), { status }); }
 export function text(value, max = 20000) { assert(typeof value === 'string' && value.trim().length > 0 && value.length <= max, `文本不能为空，且不得超过 ${max} 字符。`); return value.trim(); }
@@ -40,7 +43,7 @@ export class Store {
       fs.writeFileSync(this.lockFile, String(process.pid));
     }
     try {
-      this.state = fs.existsSync(this.file) ? JSON.parse(fs.readFileSync(this.file, 'utf8')) : { version: 1, settings: { ccPath: '', cxPath: '', concurrency: 2 }, projects: [], jobs: [], activity: [] };
+      this.state = fs.existsSync(this.file) ? JSON.parse(fs.readFileSync(this.file, 'utf8')) : { version: 1, settings: { ccPath: '', cxPath: '', concurrency: 4 }, projects: [], jobs: [], activity: [] };
       for(const p of this.state.projects){upgradeProject(p);p.skillIds ||= [];p.conversation ||= [];p.directory ||= this.workspace;p.intakeConfirmed ??= true;}
       recoverUsage(this.state,id=>this.folder(id));
       for (const job of this.state.jobs) if (['running', 'queued'].includes(job.status)) { job.status = 'interrupted'; job.error = '工作台在此任务完成前退出；请检查产物后手动重试。'; }
@@ -93,6 +96,7 @@ export class Store {
     const p = { id, title, brief, directory, dataDirectory:path.join(directory,'.relay-lab','projects',id), intakeConfirmed:!!brief, status: brief?'draft':'defining', architecture:defaultArchitecture(),skillIds:[],conversation:[],createdAt: now(), questions: [], perspectives: [], tasks: [], documents: [], ccSessionId: '', error: '' };
     this.state.projects.unshift(p);
     upgradeProject(p);p.architecture.confirmed=!!brief;
+    p.autonomy=defaultAutonomy();p.modelPolicy.allowCCSwitch=true;p.collaboration.maxReviews=p.autonomy.maxReviews;
     this.doc(p.id, '00-brief.md', '研究目标', `# ${p.title}\n\n${p.brief}\n\n## 协作约定\n\nCC 主持讨论与拆解任务；研究者逐项批阅；CX 只执行已批准的任务。所有交接留存为 Markdown。\n`);
     this.log('新建课题：' + p.title, p.id);
     return p;

@@ -11,7 +11,7 @@ import { startServer } from '../src/server.mjs';
 import { scanSkills } from '../src/skills.mjs';
 
 function temp(t){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'relay-test-'));t.after(()=>{const resolved=fs.realpathSync(dir);assert(resolved.startsWith(fs.realpathSync(os.tmpdir())+path.sep));fs.rmSync(resolved,{recursive:true,force:true});});return dir;}
-function fixture(t){const root=temp(t),store=new Store(root);t.after(()=>store.close());const p=store.newProject({title:'Test research',brief:'A real test boundary, no inference.'});return{root,store,p};}
+function fixture(t){const root=temp(t),store=new Store(root);t.after(()=>store.close());const p=store.newProject({title:'Test research',brief:'A real test boundary, no inference.'});p.autonomy.mode='assisted';p.modelPolicy.allowCCSwitch=false;return{root,store,p};}
 
 test('CLI args preserve prompts on stdin, sandbox, explicit resume IDs',()=>{
   const args=cliArgs('cx',{sessionId:'abc'});assert.deepEqual(args,['-a','never','-s','workspace-write','exec','resume','--json','--skip-git-repo-check','abc','-']);
