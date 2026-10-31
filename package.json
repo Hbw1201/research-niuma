@@ -1,0 +1,89 @@
+{
+  "name": "relay-lab",
+  "version": "0.4.0",
+  "description": "Local research orchestration for Claude Code and Codex",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Hbw1201/research-niuma.git"
+  },
+  "homepage": "https://github.com/Hbw1201/research-niuma#readme",
+  "bugs": {
+    "url": "https://github.com/Hbw1201/research-niuma/issues"
+  },
+  "type": "module",
+  "main": "desktop/main.cjs",
+  "bin": {
+    "relay-lab": "bin/relay-lab.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node bin/relay-lab.mjs start",
+    "scan": "node bin/relay-lab.mjs scan",
+    "test": "node --test tests/*.test.mjs",
+    "desktop": "electron .",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win nsis",
+    "dist:mac": "electron-builder --mac zip",
+    "dist:linux": "electron-builder --linux AppImage deb"
+  },
+  "files": [
+    "bin",
+    "src",
+    "public",
+    "desktop",
+    "README.md",
+    "RESEARCH-WORKFLOW.md"
+  ],
+  "build": {
+    "appId": "local.relaylab.desktop",
+    "productName": "Relay Lab",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/**/*",
+      "public/**/*",
+      "desktop/**/*",
+      "package.json",
+      "bin/**/*"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "signAndEditExecutable": false,
+      "artifactName": "Relay-Lab-Setup-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": [
+        "zip"
+      ],
+      "category": "public.app-category.productivity",
+      "artifactName": "Relay-Lab-${version}-macos-${arch}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development",
+      "maintainer": "Relay Lab",
+      "executableName": "relay-lab",
+      "artifactName": "Relay-Lab-${version}-linux-${arch}.${ext}"
+    },
+    "afterPack": "./scripts/after-pack.cjs",
+    "compression": "normal"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^45.1.0",
+    "electron-builder": "^26.18.0"
+  },
+  "author": "Relay Lab"
+}

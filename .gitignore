@@ -1,0 +1,55 @@
+# Dependencies, build artifacts and temporary tooling
+node_modules/
+.tools/
+release/
+dist/
+coverage/
+*.tgz
+*.zip
+*.exe
+*.tar.gz
+*.AppImage
+*.deb
+*.dmg
+*.asar
+
+# Local research, prompts, sessions, logs and screenshots
+.relay-lab/
+workspace/
+workspaces/
+research-workspace/
+projects/
+runs/
+screenshots/
+*.log
+*.jsonl
+*.sqlite*
+*.db
+*.bak
+*.tmp
+
+# CLI authentication, local configuration and secrets
+.claude/
+.codex/
+.agents/
+.env
+.env.*
+.npmrc
+.netrc
+.git-credentials
+auth.json
+credentials.json
+settings.local.json
+connection.json
+server.lock
+*.pem
+*.key
+*.p12
+*.pfx
+CLAUDE-SETUP.md
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
