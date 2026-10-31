@@ -25,7 +25,7 @@
     "desktop": "electron .",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win nsis",
-    "dist:mac": "electron-builder --mac zip",
+    "dist:mac": "electron-builder --mac dmg",
     "dist:linux": "electron-builder --linux AppImage deb"
   },
   "files": [
@@ -62,8 +62,13 @@
     },
     "mac": {
       "target": [
-        "zip"
+        "dmg"
       ],
+      "identity": "-",
+      "hardenedRuntime": true,
+      "entitlements": "desktop/entitlements.mac.plist",
+      "entitlementsInherit": "desktop/entitlements.mac.plist",
+      "notarize": false,
       "category": "public.app-category.productivity",
       "artifactName": "Relay-Lab-${version}-macos-${arch}.${ext}"
     },

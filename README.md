@@ -9,6 +9,29 @@ A local research workbench for **Claude Code (CC) × Codex (CX)**, with Markdown
 
 > “牛马” is a playful Chinese internet expression for tireless workers. Here, the AI agents take that role. The application is an independent community project and is not affiliated with Anthropic or OpenAI.
 
+## 下载安装 / Download
+
+**[GitHub Releases · v0.4.0](https://github.com/Hbw1201/research-niuma/releases/tag/v0.4.0)** · [最新版本 / Latest release](https://github.com/Hbw1201/research-niuma/releases/latest)
+
+| 系统 / Platform | 直接下载 / Direct download | 安装 / Install |
+|---|---|---|
+| Windows x64 | [EXE installer](https://github.com/Hbw1201/research-niuma/releases/download/v0.4.0/Relay-Lab-Setup-0.4.0-x64.exe) | 运行安装向导 / Run the installer |
+| macOS Apple Silicon · M 系列 | [ARM64 DMG](https://github.com/Hbw1201/research-niuma/releases/download/v0.4.0/Relay-Lab-0.4.0-macos-arm64.dmg) | 拖入 Applications / Drag into Applications |
+| macOS Intel | [x64 DMG](https://github.com/Hbw1201/research-niuma/releases/download/v0.4.0/Relay-Lab-0.4.0-macos-x64.dmg) | 拖入 Applications / Drag into Applications |
+| Ubuntu / Debian x64 | [DEB package](https://github.com/Hbw1201/research-niuma/releases/download/v0.4.0/Relay-Lab-0.4.0-linux-x64.deb) | `sudo apt install ./Relay-Lab-0.4.0-linux-x64.deb` |
+| Linux x64 portable | [AppImage](https://github.com/Hbw1201/research-niuma/releases/download/v0.4.0/Relay-Lab-0.4.0-linux-x64.AppImage) | 赋予执行权限后运行 / Make executable, then run |
+| 跨平台终端 / CLI · Node.js 22+ | [npm tarball](https://github.com/Hbw1201/research-niuma/releases/download/v0.4.0/relay-lab-0.4.0.tgz) | `npm install -g ./relay-lab-0.4.0.tgz` |
+
+桌面包自带运行时，无需另装 Node.js。Claude Code 和 Codex 需要自行安装并登录。AppImage 在部分 Linux 系统需要 FUSE 2 兼容库，也可选择 DEB。
+
+Desktop packages include their runtime. Install and authenticate Claude Code and Codex separately. Some Linux systems need FUSE 2 compatibility libraries for AppImage; DEB is an alternative.
+
+**签名状态 / Signing:** Windows 没有发布者签名；macOS 采用 ad-hoc 签名，没有 Apple Developer ID 或公证，首次运行可能被系统提示或拦截。Windows has no publisher signature; macOS is ad-hoc signed without Developer ID or notarization, so the OS may warn or block first launch.
+
+[SHA-256 校验值 / Checksums](https://github.com/Hbw1201/research-niuma/releases/download/v0.4.0/SHA256SUMS.txt) · [构建与包内文件记录 / Build manifest](https://github.com/Hbw1201/research-niuma/releases/download/v0.4.0/BUILD-INFO.json)
+
+发布包仅从公开源码在干净的 GitHub 托管环境构建，不包含开发者的密钥、CLI 登录信息、课题数据或历史记录。Release packages are built from public source on clean GitHub-hosted runners, without developer credentials, CLI login, research data, or local history.
+
 ## 中文介绍
 
 科研牛马局是一个在本机运行的科研协作工作台，提供网页、终端 CLI 和 Electron 桌面入口。每个课题拥有独立的文件夹、研究计划、规则和团队：一位 CC 导师管理多个 CX 执行者，以 Markdown 文档持续交接。
@@ -102,7 +125,7 @@ npm run dist:linux
 
 技术包名、终端命令和部分产物名仍为 `relay-lab` / `Relay Lab`。桌面版默认使用用户文档目录下的 `Relay Lab`，也支持通过 `RELAY_WORKSPACE` 指定工作区。
 
-Windows 桌面与真实 CLI 反馈链路已做本机验证。仓库包含 Windows、macOS、Ubuntu 的构建配置；macOS / Linux 原生运行尚待实机验证，不代表已经支持所有环境。未配置代码签名或 Apple 公证。构建产物不提交进源码仓库。
+Windows 桌面与真实 CLI 反馈链路已做本机验证。发布流水线在 Windows、macOS Apple Silicon / Intel、Ubuntu 上分别构建，检查包内源码、内置 CLI 和空工作区本地服务；完整安装向导与桌面交互仍需在用户设备上验证。签名状态见上方下载说明。构建产物位于 GitHub Releases，不提交进源码仓库。
 
 ### 数据与边界
 
@@ -155,7 +178,7 @@ The web/CLI core has no third-party runtime dependencies, so this command does n
 
 For the desktop application, run `npm ci` followed by `npm run desktop`. Build with `npm run dist:win`, `npm run dist:mac`, or `npm run dist:linux` on the corresponding OS. The command/package name remains `relay-lab`.
 
-Windows desktop and a real CC/CX feedback loop have been exercised locally. Native macOS/Linux runtime validation is still pending. Cross-platform build workflows are provided; code signing and Apple notarization are not configured. This repository contains source rather than bundled desktop installers.
+Windows desktop and a real CC/CX feedback loop have been exercised locally. Release builds run on Windows, Apple Silicon/Intel macOS, and Ubuntu, with packaged-source, bundled-CLI, and fresh local-service checks. Full manual installer and desktop interaction testing on user devices remains separate. See the signing status above. Installers are available through [GitHub Releases](https://github.com/Hbw1201/research-niuma/releases/latest).
 
 ### Privacy and operational limits
 

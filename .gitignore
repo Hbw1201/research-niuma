@@ -2,6 +2,8 @@
 node_modules/
 .tools/
 release/
+release-assets/
+artifacts/
 dist/
 coverage/
 *.tgz

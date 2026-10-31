@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const git = args => execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
 const files = git(['ls-files', '-z']).split('\0').filter(Boolean);
-const roots = new Set(['README.md', 'RESEARCH-WORKFLOW.md', 'LICENSE', 'SECURITY.md', '.gitignore', '.gitattributes', 'package.json', 'package-lock.json', 'start-unix.sh', 'start-windows.ps1']);
+const roots = new Set(['README.md', 'RESEARCH-WORKFLOW.md', 'RELEASE-NOTES.md', 'LICENSE', 'SECURITY.md', '.gitignore', '.gitattributes', 'package.json', 'package-lock.json', 'start-unix.sh', 'start-windows.ps1', 'desktop/entitlements.mac.plist']);
 const source = /^(?:bin|desktop|public|src|tests|scripts)\/[\w./-]+\.(?:mjs|cjs|js|css|html|svg)$/;
 const workflow = /^\.github\/workflows\/[\w-]+\.ya?ml$/;
 const rules = [

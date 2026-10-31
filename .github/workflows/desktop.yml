@@ -12,30 +12,81 @@ jobs:
       matrix:
         include:
           - os: windows-latest
+            platform: win32
+            arch: x64
             target: --win nsis --x64
-          - os: macos-latest
-            target: --mac zip --arm64 --x64
-          - os: ubuntu-latest
+          - os: macos-15
+            platform: darwin
+            arch: arm64
+            target: --mac dmg --arm64
+          - os: macos-15-intel
+            platform: darwin
+            arch: x64
+            target: --mac dmg --x64
+          - os: ubuntu-22.04
+            platform: linux
+            arch: x64
             target: --linux AppImage deb --x64
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
+      - run: node scripts/check-public-source.mjs
       - run: npm ci
       - run: npm test
-      - run: npm pack
       - run: npx electron-builder ${{ matrix.target }} --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Verify packaged source and native runtime
+        run: node scripts/verify-release.mjs
+      - name: Pack and verify the portable CLI
+        if: runner.os == 'Linux'
+        run: |
+          npm pack
+          node scripts/verify-cli-package.mjs
       - uses: actions/upload-artifact@v4
         with:
-          name: relay-lab-${{ matrix.os }}
+          name: packages-${{ matrix.platform }}-${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 14
           path: |
             release/*.exe
-            release/*.zip
+            release/*.dmg
             release/*.AppImage
             release/*.deb
+            release/audit-*.json
             *.tgz
+  draft-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: packages-*
+          path: artifacts
+          merge-multiple: true
+      - name: Check completeness and generate checksums
+        run: node scripts/prepare-release.mjs
+      - name: Upload verified files to a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" --verify-tag --draft --title "科研牛马局 / Research Niuma Lab $RELEASE_TAG" --notes-file RELEASE-NOTES.md
+          gh release upload "$RELEASE_TAG" release-assets/*
