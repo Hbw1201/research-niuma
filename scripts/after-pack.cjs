@@ -7,7 +7,8 @@ module.exports = async context => {
   } else if(context.electronPlatformName==='linux') {
     fs.writeFileSync(path.join(out,'relay-lab-cli'),'#!/usr/bin/env sh\nROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"\nexec env ELECTRON_RUN_AS_NODE=1 "$ROOT/relay-lab" "$ROOT/resources/app.asar/bin/relay-lab.mjs" "$@"\n',{mode:0o755});
   } else if(context.electronPlatformName==='darwin') {
-    const dir=path.join(out,'Relay Lab.app','Contents','MacOS');
-    fs.writeFileSync(path.join(dir,'relay-lab-cli'),'#!/usr/bin/env sh\nROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"\nexec env ELECTRON_RUN_AS_NODE=1 "$ROOT/Relay Lab" "$ROOT/../Resources/app.asar/bin/relay-lab.mjs" "$@"\n',{mode:0o755});
+    // Shell scripts are bundle resources, not unsigned nested code in MacOS/.
+    const dir=path.join(out,'Relay Lab.app','Contents','Resources');
+    fs.writeFileSync(path.join(dir,'relay-lab-cli'),'#!/usr/bin/env sh\nROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"\nexec env ELECTRON_RUN_AS_NODE=1 "$ROOT/../MacOS/Relay Lab" "$ROOT/app.asar/bin/relay-lab.mjs" "$@"\n',{mode:0o755});
   }
 };
