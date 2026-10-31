@@ -29,7 +29,10 @@ const audits = ['win32-x64', 'darwin-arm64', 'darwin-x64', 'linux-x64'].map(targ
 fs.mkdirSync('release-assets', { recursive: true });
 const assets = [];
 for (const name of expected) {
-  const file = downloaded.get(name);
+  // electron-builder uses package-format architecture names on Linux.
+  const nativeName = name.endsWith('.AppImage') ? name.replace('-x64.', '-x86_64.')
+    : name.endsWith('.deb') ? name.replace('-x64.', '-amd64.') : name;
+  const file = downloaded.get(name) ?? downloaded.get(nativeName);
   if (!fs.existsSync(file) || fs.statSync(file).size === 0) throw new Error('Missing release asset: ' + name);
   fs.copyFileSync(file, path.join('release-assets', name));
   assets.push({ name, bytes: fs.statSync(file).size, sha256: crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex') });
