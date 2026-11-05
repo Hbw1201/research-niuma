@@ -60,7 +60,7 @@ test('leader chooses team, adds CX after results, changes models, archives used 
 test('invalid models, unknown skills, limits and pinned/busy workers reject a candidate before any team mutation',t=>{
   const {p,flow}=fixture(t);const w=p.architecture.workers[0],before=JSON.stringify(p.architecture);p.modelPolicy.allowedModels=['small'];
   assert.throws(()=>flow.leadership.apply(p,team(p,[config(w,{model:'forbidden'})])),/超出用户允许/);assert.equal(JSON.stringify(p.architecture),before);
-  assert.throws(()=>prepareLeadership(p,team(p,[config(w,{model:'small',skillIds:['missing']})]),[],flow.models()),/Skill/);
+  assert.throws(()=>prepareLeadership(p,team(p,[config(w,{model:'small',skillIds:['missing']})]),[],flow.models()),/所选技能已不存在/);
   w.pinned=true;assert.throws(()=>prepareLeadership(p,team(p,[config(w,{role:'changed'})]),[],flow.models()),/固定/);
   assert.throws(()=>prepareLeadership(p,team(p,[config(p.architecture.workers[1],{model:'small'})]),[],flow.models()),/固定/);
   w.pinned=false;p.tasks=[{workerId:w.id,status:'running'}];assert.throws(()=>prepareLeadership(p,team(p,[config(w,{model:'small'})]),[],flow.models()),/正在运行/);

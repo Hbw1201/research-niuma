@@ -77,6 +77,7 @@ export class Leadership {
     await Promise.allSettled([...(this.flow.modelSelections.get(p.id)||[])]);
     if(token.cancelled||this.flow.runner.closing)return;
     const {store,runner}=this.flow,catalog=this.flow.catalog(p),models=this.flow.models();
+    const revision=p.steering.revision;
     const running=p.tasks.filter(t=>t.status==='running').map(t=>t.workerId);
     const prompt=`你是本项目的研究负责人 CC Leader，负责自主组织多个 Codex (CX)，不是仅提供建议的顾问。研究者已经允许你在下列边界内直接决定团队，不需要逐次采纳。
 研究目标：${p.researchTopic||p.title}\n${p.brief}
@@ -98,10 +99,11 @@ taskUpdates 用于直接调整未执行的待办：action=update 可改派到有
 根据任务难度和实际失败/成功证据规划模型，候选目录不保证网关权限，不捏造价格、性能或可用性。不确定时沿用当前/默认模型。可读取项目 Markdown 与 CX 产物以核对证据；不要调用实现工具或自行启动外部 CX，工作台会应用团队方案并执行。`;
     const id=uid();store.doc(p.id,`63-leader-request-${id}.md`,'CC Leader 团队调度指令',prompt,'request');
     const r=await runner.run({projectId:p.id,provider:'cc',kind:'leadership',title:'CC Leader · 自主编排 CX 数量、分工与模型',executable:this.flow.cli('cc'),cwd:store.folder(p.id),sessionId:p.ccSessionId||undefined,prompt,schema:leadershipSchema});
-    if(token.cancelled||runner.closing)return;
+    if(token.cancelled||runner.closing||p.steering.revision!==revision)return;
     p.ccSessionId=r.job.sessionId||p.ccSessionId;
     const data=r.structured||JSON.parse(r.text.trim().replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,''));
     this.apply(p,data,{catalog,models,jobId:r.job.id,id});
+    token.teamRevision=revision;
   }
   apply(p,data,{catalog=this.flow.catalog(p),models=this.flow.models(),jobId,id=uid()}={}){
     const {store,runner}=this.flow;

@@ -4,7 +4,15 @@ import { createHash } from 'node:crypto';
 import { agentHome, userHome } from './platform.mjs';
 import { assert } from './store.mjs';
 
-export function scanSkills(workspace, extraRoots = []) {
+// Translations are presentation metadata. The runner always receives the original skill.
+export function scanSkills(workspace, extraRoots = [], { localized = false } = {}) {
+  let translations = {};
+  if (localized) {
+    try {
+      const entries = JSON.parse(fs.readFileSync(path.join(workspace, '.relay-lab', 'skills.zh-CN.json'), 'utf8'));
+      if (entries && typeof entries === 'object' && !Array.isArray(entries)) translations = entries;
+    } catch { /* Optional workspace dictionary. */ }
+  }
   const roots = [
     {path:path.join(agentHome('cc'),'skills'),source:'Claude'},
     {path:path.join(agentHome('cx'),'skills'),source:'Codex'},
@@ -27,7 +35,14 @@ export function scanSkills(workspace, extraRoots = []) {
           if(/^[>|][-+]?$/.test(value)){const body=[];for(let i=index+1;i<lines.length;i++){if(lines[i].trim()&&!/^\s/.test(lines[i]))break;body.push(lines[i].trim());}return body.join(value.startsWith('>')?' ':'\n').trim();}
           return value.replace(/^["']|["']$/g,'');
         };
-        result.push({id:createHash('sha256').update(real).digest('hex').slice(0,24),name:read('name')||path.basename(dir),description:read('description'),path:real,directory:path.dirname(real),source});return;
+        const id=createHash('sha256').update(real).digest('hex').slice(0,24),name=read('name')||path.basename(dir);
+        const skill={id,name,description:read('description'),path:real,directory:path.dirname(real),source};
+        if(localized){
+          const t=Object.hasOwn(translations,id)?translations[id]:Object.hasOwn(translations,name)?translations[name]:null;
+          skill.displayName=(typeof t?.name==='string' && t.name.trim())||read('name_zh')||name;
+          skill.displayDescription=(typeof t?.description==='string' && t.description.trim())||read('description_zh')||skill.description;
+        }
+        result.push(skill);return;
       }
       for(const entry of fs.readdirSync(dir,{withFileTypes:true}))if(entry.isDirectory()||entry.isSymbolicLink())visit(path.join(dir,entry.name),source,depth+1);
     }catch{}
@@ -38,10 +53,10 @@ export function scanSkills(workspace, extraRoots = []) {
 
 export function loadSelectedSkills(project,catalog) {
   const selected=(project.skillIds||[]).map(id=>{
-    const skill=catalog.find(s=>s.id===id);assert(skill,`所选 Skill 已不存在（${id}），请重新扫描并保存选择。`,409);
-    const content=fs.readFileSync(skill.path,'utf8');assert(content.length<=60000,`Skill ${skill.name} 超过 60,000 字符，请拆分后再选择。`);
+    const skill=catalog.find(s=>s.id===id);assert(skill,`所选技能已不存在（${id}），请重新扫描并保存选择。`,409);
+    const content=fs.readFileSync(skill.path,'utf8');assert(content.length<=60000,`技能 ${skill.name} 超过 60,000 字符，请拆分后再选择。`);
     return{...skill,content,hash:createHash('sha256').update(content).digest('hex')};
   });
-  assert(selected.reduce((n,s)=>n+s.content.length,0)<=180000,'所选 Skills 内容总量过大，请减少本课题选择的 Skills。');
+  assert(selected.reduce((n,s)=>n+s.content.length,0)<=180000,'所选技能的内容总量过大，请减少本课题勾选的技能。');
   return selected;
 }

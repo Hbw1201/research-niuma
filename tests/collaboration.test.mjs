@@ -54,8 +54,8 @@ test('out-of-scope feedback never launches proposed task and CLI failure is sent
 });
 test('new researcher message after a completed cycle invokes CC again without repeating previous CX work',async t=>{
  const {store,p,runner,flow}=fixture(t);add(store,p);let executions=0,reviews=0;
- runner.run=async args=>{if(args.kind==='execution')executions++;else{reviews++;if(reviews===2)assert.match(args.prompt,/Check a different explanation/);}return response(args,args.kind==='feedback'?feedback():null);};
- await flow.collaborate(p.id);await flow.collaboration.send(p.id,'Check a different explanation');assert.equal(executions,1);assert.equal(reviews,2);assert(p.collaboration.messages.find(m=>m.from==='研究者').seenAt);
+ runner.run=async args=>{if(args.kind==='execution')executions++;if(args.kind==='feedback')reviews++;if(args.kind==='control-chat'){assert.match(args.prompt,/Check a different explanation/);return response(args,{reply:'Consider alternative explanations.',isRequirement:false});}return response(args,args.kind==='feedback'?feedback():null);};
+ await flow.collaborate(p.id);await flow.collaboration.send(p.id,'Check a different explanation');assert.equal(executions,1);assert.equal(reviews,1);assert.equal(p.status,'cycle_complete');assert.equal(p.steering.turns[0].status,'answered');
 });
 test('confirmed questionnaire can plan and enter feedback loop in one action; no approval cannot start',async t=>{
  const {p,runner,flow}=fixture(t);p.questions[0].decision='pending';assert.throws(()=>flow.collaborate(p.id),/批阅/);p.questions[0].decision='approved';
@@ -68,8 +68,8 @@ test('restart pauses collaboration and preserves feedback; stage confirmation is
  const flow2=new Workflow(restored,new Runner(restored),()=>({}));flow2.stageReview(p.id,{stageId:'pilot',action:'confirmed',comment:'Reviewed the fixture evidence'});assert.equal(restored.project(p.id).research.decisions.length,1);
 });
 test('researcher can keep talking to CC after topic confirmation before any execution exists',async t=>{
- const {p,runner,flow}=fixture(t);runner.run=async args=>{assert.equal(args.kind,'research-chat');assert.match(args.prompt,/Question the measurement/);return response(args);};
- await flow.collaboration.send(p.id,'Question the measurement');assert.equal(p.tasks.length,0);assert.equal(p.collaboration.messages.at(-1).from,'CC');assert(p.collaboration.messages[0].seenAt);
+ const {p,runner,flow}=fixture(t);runner.run=async args=>{assert.equal(args.kind,'control-chat');assert.match(args.prompt,/Question the measurement/);return response(args,{reply:'Discuss the measurement.',isRequirement:false});};
+ await flow.collaboration.send(p.id,'Question the measurement');assert.equal(p.tasks.length,0);assert.equal(p.steering.turns.at(-1).reply,'Discuss the measurement.');assert.equal(p.steering.revision,0);
 });
 test('stopping an individual CX call stops scheduling instead of restarting the cancelled task',async t=>{
  const {store,p,runner,flow}=fixture(t);add(store,p);let calls=0;runner.run=async()=>{calls++;store.state.jobs.push({id:'cancelled-job',status:'cancelled'});throw Object.assign(new Error('任务已停止。'),{jobId:'cancelled-job'});};

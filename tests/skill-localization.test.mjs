@@ -1,0 +1,32 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { scanSkills, loadSelectedSkills } from '../src/skills.mjs';
+import { skillsPage } from '../public/workflow-ui.js';
+
+test('local skill translations are searchable without changing what a saved selection executes', t => {
+  const root = mkdtempSync(path.join(tmpdir(),'skill-translation-'));
+  t.after(()=>rmSync(root,{recursive:true,force:true}));
+  const dir=path.join(root,'.agents','skills','example'), data=path.join(root,'.relay-lab');
+  mkdirSync(dir,{recursive:true}); mkdirSync(data);
+  const file=path.join(dir,'SKILL.md');
+  const body='---\nname: example-fixture\ndescription: Read a sample table\nname_zh: 示例读取\ndescription_zh: 读取示例表格\n---\nKeep the original instructions.';
+  writeFileSync(file,body);
+  const get=localized=>scanSkills(root,[],{localized}).find(s=>s.path===file);
+  const raw=get(false), native=get(true);
+  assert.equal(native.displayName,'示例读取');
+  writeFileSync(path.join(data,'skills.zh-CN.json'),JSON.stringify({[raw.id]:{name:'表格读取器'}}));
+  const localized=get(true);
+  assert.equal(localized.displayName,'表格读取器');
+  assert.equal(localized.displayDescription,'读取示例表格');
+  assert.equal(localized.id,raw.id);
+  assert.equal(raw.displayName,undefined);
+  assert.equal(loadSelectedSkills({skillIds:[localized.id]},[raw])[0].content,body);
+  const ctx={p:{title:'测试'},head:t=>t,panel:(_,content)=>content,esc:s=>s,button:()=>'',busy:()=>false};
+  const html=skillsPage(ctx,[localized],new Set([raw.id]));
+  const terms=html.match(/data-search="([^"]+)"/)[1];
+  for(const term of ['表格读取器','读取示例表格','example-fixture','sample table'])assert.ok(terms.includes(term));
+  assert.ok(html.includes('课题技能')&&html.includes(`value="${raw.id}" checked`));
+});

@@ -1,3 +1,4 @@
+import {Steering} from './steering.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { capture, invocation } from './platform.mjs';
@@ -47,7 +48,7 @@ export function validatePlan(data, questions, workers) {
 }
 
 export class Workflow {
-  constructor(store, runner, getScan) { this.store = store; this.runner = runner; this.getScan = getScan; this.busy = new Set(); this.pumps = new Map(); this.modelSelections=new Map();this.models=modelCatalog;this.collaboration=new Collaboration(this);this.leadership=new Leadership(this); }
+  constructor(store, runner, getScan) { this.store = store; this.runner = runner; this.getScan = getScan; this.busy = new Set(); this.pumps = new Map(); this.modelSelections=new Map();this.models=modelCatalog;this.collaboration=new Collaboration(this);this.leadership=new Leadership(this);this.steering=new Steering(this); }
   cli(provider) { const cli = this.getScan()?.clis?.[provider]; assert(cli?.available, `${provider === 'cc' ? 'Claude Code' : 'Codex'} 尚未就绪，请先完成本机扫描或在设置中指定程序路径。`, 409); return cli.path; }
   idle(id) { assert(!this.busy.has(id) && !this.pumps.has(id)&&!this.collaboration.active.has(id), '此课题已有任务运行中。', 409); }
   collaborate(id,input={}){return this.collaboration.start(id,input);}
@@ -105,11 +106,11 @@ export class Workflow {
   writeTeamConversation(p){this.store.doc(p.id,'09-team-conversation.md','CX 分工讨论',`# ${p.title}：团队讨论\n\n`+p.teamConversation.map(m=>`## ${m.role==='user'?'研究者':'CC 导师'} · ${m.at}\n\n${m.content}`).join('\n\n'),'conversation');}
   acceptTeam(id,proposalId){const p=this.store.project(id);assert(p.teamProposal?.id===proposalId,'方案已更新，请刷新后查看最新方案。',409);this.configure(id,p.teamProposal);p.teamProposal.accepted=true;this.runner.changed();}
   selectSkills(id,ids) {
-    const p=this.store.project(id);this.idle(id);assert(Array.isArray(ids)&&ids.length<=30&&ids.every(x=>typeof x==='string'),'最多选择 30 个 Skills。');
+    const p=this.store.project(id);this.idle(id);assert(Array.isArray(ids)&&ids.length<=30&&ids.every(x=>typeof x==='string'),'每个课题最多选择 30 项技能。');
     const previous=p.skillIds;p.skillIds=[...new Set(ids)];
     let selected;try{const catalog=this.catalog(p);selected=loadSelectedSkills(p,catalog);for(const w of p.architecture.workers)loadSelectedSkills({skillIds:[...new Set([...p.skillIds,...w.skillIds])]},catalog);}catch(e){p.skillIds=previous;throw e;}
     this.store.doc(id,'05-selected-skills.md','本课题 Skills',`# ${p.title}：显式选择的 Skills\n\n`+selected.map(s=>`## ${s.name}\n\n来源：${s.path}\n\n${s.content}`).join('\n\n'),'skills');
-    this.store.log(`本课题已选择 ${selected.length} 个 Skills。`,id);this.runner.changed();
+    this.store.log(`本课题已选择 ${selected.length} 项技能。`,id);this.runner.changed();
   }
   chat(id,message) {
     const p=this.store.project(id),executable=this.cli('cc');this.idle(id);assert(!p.intakeConfirmed,'课题已进入 pipeline。请在原课题中执行，或新建课题讨论新方向。',409);
@@ -234,7 +235,7 @@ export class Workflow {
     });
   }
   stopProject(id) {
-    this.collaboration.stop(id);
+    this.collaboration.stop(id);this.steering.stop(id);
     this.store.project(id); const token=this.pumps.get(id);if(token)token.cancelled=true;
     for(const j of this.store.state.jobs.filter(j=>j.projectId===id&&j.status==='running')) {try{this.runner.cancel(j.id);}catch{}}
     this.runner.changed();

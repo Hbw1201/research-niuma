@@ -19,6 +19,7 @@ export function upgradeProject(p) {
   p.modelPolicy ||= {allowCCSwitch:false,allowedModels:[]};
   // Existing projects keep their previous operating mode until the user enables Auto Research.
   p.autonomy ||= defaultAutonomy('assisted');p.teamChanges ||= [];
+  p.steering ||= {revision:0,turns:[],sessionId:''};
   p.teamConversation ||= [];p.modelChanges ||= [];
   p.collaboration ||= {state:'idle',maxReviews:8,reviewsUsed:0,messages:[],reviews:[],pendingDecision:null};
   p.collaboration.messages ||= [];p.collaboration.reviews ||= [];
@@ -45,8 +46,9 @@ export class Store {
     try {
       this.state = fs.existsSync(this.file) ? JSON.parse(fs.readFileSync(this.file, 'utf8')) : { version: 1, settings: { ccPath: '', cxPath: '', concurrency: 4 }, projects: [], jobs: [], activity: [] };
       for(const p of this.state.projects){upgradeProject(p);p.skillIds ||= [];p.conversation ||= [];p.directory ||= this.workspace;p.intakeConfirmed ??= true;}
+      for(const p of this.state.projects)for(const t of p.steering.turns)if(['queued','replying'].includes(t.status)){t.status='interrupted';t.error='工作台已重启，可重试这条消息。';}
       recoverUsage(this.state,id=>this.folder(id));
-      for (const job of this.state.jobs) if (['running', 'queued'].includes(job.status)) { job.status = 'interrupted'; job.error = '工作台在此任务完成前退出；请检查产物后手动重试。'; }
+      for (const job of this.state.jobs) if (['running', 'queued', 'cancelling'].includes(job.status)) { job.status = 'interrupted'; job.error = '工作台在此任务完成前退出；请检查产物后手动重试。'; }
       for (const p of this.state.projects) { if (['brainstorming','planning','executing','reviewing','chatting','team_chatting'].includes(p.status)) p.status = 'interrupted'; for (const t of p.tasks || []) if (['running','queued'].includes(t.status)) t.status = 'interrupted'; }
       for(const p of this.state.projects)if(p.collaboration.state==='running'){p.collaboration.state='paused';p.collaboration.pauseReason='工作台已退出，历史步骤保留；点击继续后恢复反馈与待办。';p.status='interrupted';}
       this.save();

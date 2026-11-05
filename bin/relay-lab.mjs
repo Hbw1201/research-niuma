@@ -25,7 +25,7 @@ const help=`Relay Lab · CC × CX 科研工作台 v0.5.0
                                  设置 CC Leader；可加 --brief "长期要求"
   run --project ID [--task ID] [--max-reviews 100]
                                  启动 CC 自主组队与持续研究
-  message --project ID --text "要求"  运行中向 CC 补充要求
+  message --project ID --text "要求"  与总控 CC 对话，加 --requirement 可直接更新课题要求
   stop --project ID              停止工作台管理的课题任务
   summarize --project ID         CC 汇总 CX 报告
   docs --project ID              列出 Markdown 文档
@@ -71,7 +71,7 @@ try {
   }
   else if(['brainstorm','review','plan','run','stop','summarize','message'].includes(command)) {
     const id=option('project','');if(!/^[a-f0-9-]+$/.test(id))throw new Error('请指定有效 --project ID。');
-    const body=command==='review'?{questionId:option('question',''),decision:option('decision',''),answer:option('answer',''),comment:option('comment','')}:command==='run'?{taskId:option('task'),...(argv.includes('--max-reviews')?{maxReviews:Number(option('max-reviews'))}:{})}:command==='message'?{message:option('text','')}:{};
-    json(await api(`/api/projects/${id}/${command==='run'?'execute':command}`,body));
+    const body=command==='review'?{questionId:option('question',''),decision:option('decision',''),answer:option('answer',''),comment:option('comment','')}:command==='run'?{taskId:option('task'),...(argv.includes('--max-reviews')?{maxReviews:Number(option('max-reviews'))}:{})}:command==='message'?{message:option('text',''),mode:argv.includes('--requirement')?'requirement':'auto'}:{};
+    json(await api(`/api/projects/${id}/${command==='run'?'execute':command==='message'?'control-chat':command}`,body));
   } else throw new Error(`未知命令 ${command}。使用 --help 查看帮助。`);
 }catch(e){console.error('Relay Lab：'+e.message);process.exitCode=1;}
