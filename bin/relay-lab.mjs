@@ -2,14 +2,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { startServer } from '../src/server.mjs';
+import { startServer, version } from '../src/server.mjs';
 import { discover } from '../src/platform.mjs';
 
 const argv=process.argv.slice(2), command=argv[0]||'help';
 const option=(name,fallback)=>{const i=argv.indexOf('--'+name);return i<0?fallback:argv[i+1];};
 const workspace=path.resolve(option('workspace',process.cwd()));
 const json=value=>console.log(JSON.stringify(value,null,2));
-const help=`Relay Lab · CC × CX 科研工作台 v0.5.0
+const help=`Relay Lab · CC × CX 科研工作台 v${version}
 
 用法：relay-lab <命令> [参数]
 也可：node bin/relay-lab.mjs <命令>

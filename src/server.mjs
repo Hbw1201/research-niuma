@@ -12,6 +12,7 @@ import { scanSkills } from './skills.mjs';
 import { modelCatalog } from './models.mjs';
 
 const publicDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../public');
+export const version = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 const assets = { '/':'index.html', '/index.html':'index.html', '/app.js':'app.js', '/workflow-ui.js':'workflow-ui.js', '/team-ui.js':'team-ui.js', '/leader-ui.js':'leader-ui.js', '/pipeline-ui.js':'pipeline-ui.js', '/research-stages.js':'research-stages.js', '/pipeline.css':'pipeline.css', '/styles.css':'styles.css', '/favicon.svg':'favicon.svg' };
 const mime = { '.html':'text/html; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.css':'text/css; charset=utf-8', '.svg':'image/svg+xml' };
 Object.assign(assets,{'/':'home.html','/index.html':'home.html','/experiments/':'index.html','/experiments':'index.html','/home.js':'home.js','/home.css':'home.css','/markdown.js':'markdown.js'});
@@ -26,7 +27,7 @@ export async function startServer({ workspace = process.cwd(), port = 4318, scan
   let workflow = new Workflow(store, runner, () => scan);
   let home=new HomeChat(store,runner,()=>scan);
   const clients = new Set();
-  const snapshot = () => ({ ...store.state, workspace: store.workspace, rules:store.rules(), models:modelCatalog(), scan, token, version: '0.5.0' });
+  const snapshot = () => ({ ...store.state, workspace: store.workspace, rules:store.rules(), models:modelCatalog(), scan, token, version });
   let broadcastTimer;
   const broadcast = () => { if(broadcastTimer)return; broadcastTimer = setTimeout(()=>{ broadcastTimer=null;for (const res of clients) res.write('event: change\ndata: {}\n\n'); },100); };
   runner.on('change',broadcast);
@@ -46,7 +47,7 @@ export async function startServer({ workspace = process.cwd(), port = 4318, scan
       if(req.method==='GET') {
         if(route==='/api/home-chat') return json(res,200,{...home.snapshot(url.searchParams.get('chat')),token});
         if(route==='/api/state') return json(res,200,snapshot());
-        if(route==='/api/health') return json(res,200,{ok:true,version:'0.5.0'});
+        if(route==='/api/health') return json(res,200,{ok:true,version});
         if(route==='/api/rules')return json(res,200,store.rules(url.searchParams.get('project')||undefined));
         if(route==='/api/skills'){const p=url.searchParams.get('project')?store.project(url.searchParams.get('project')):null;return json(res,200,{skills:scanSkills(store.workspace,[...(store.state.settings.skillRoots||[]),...(p?['.claude','.codex','.agents'].map(dir=>path.join(p.directory,dir,'skills')):[])],{localized:true})});}
         if(route==='/api/folders') {

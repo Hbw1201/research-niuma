@@ -1,23 +1,23 @@
-# 科研牛马局 / Research Niuma Lab 0.4.0
+# 科研牛马局 / Research Niuma Lab 0.6.0
 
-一个 CC 导师管理多个 CX，以 Markdown 交接，研究者确认关键决策。支持持续反馈、可展开的科研 Pipeline、课题规则、Skills、模型和 token 统计。
+本版新增独立的 Claude Code 对话主页，支持流式回复、停止生成和恢复对话。进入「实验区」后，可以在课题各页随时向 CC 提问或补充要求；确认首轮问卷后，CC 可以调整 CX 数量、分工和模型。「课题技能」支持按中文名称、用途或原标识搜索；本机译名和会话记录留在工作区。
 
-One Claude Code mentor coordinates multiple Codex workers through Markdown handoffs and human decisions. Includes continuous feedback, an inspectable research Pipeline, project rules, Skills, model selection, and token accounting.
+This release adds a dedicated Claude Code chat home with streaming, cancellation, and resumable conversations. In Experiments, the project chat lets you ask CC questions and update requirements across project views. After the first questionnaire is approved, CC can adjust the CX team size, assignments, and models. Project skills are searchable by localized Chinese labels, descriptions, or original identifiers; workspace translations and chat history stay local.
 
 ## 下载 / Downloads
 
 | 系统 / Platform | 文件 / File |
 |---|---|
-| Windows x64 | `Relay-Lab-Setup-0.4.0-x64.exe` |
-| macOS Apple Silicon (M series) | `Relay-Lab-0.4.0-macos-arm64.dmg` |
-| macOS Intel | `Relay-Lab-0.4.0-macos-x64.dmg` |
-| Ubuntu / Debian x64 | `Relay-Lab-0.4.0-linux-x64.deb` |
-| Linux x64 portable | `Relay-Lab-0.4.0-linux-x64.AppImage` |
-| Cross-platform CLI (Node.js 22+) | `relay-lab-0.4.0.tgz` |
+| Windows x64 | `Relay-Lab-Setup-0.6.0-x64.exe` |
+| macOS Apple Silicon (M series) | `Relay-Lab-0.6.0-macos-arm64.dmg` |
+| macOS Intel | `Relay-Lab-0.6.0-macos-x64.dmg` |
+| Ubuntu / Debian x64 | `Relay-Lab-0.6.0-linux-x64.deb` |
+| Linux x64 portable | `Relay-Lab-0.6.0-linux-x64.AppImage` |
+| Cross-platform CLI (Node.js 22+) | `relay-lab-0.6.0.tgz` |
 
-Windows：运行 EXE，按安装向导完成。macOS：打开对应芯片的 DMG，将 Relay Lab 拖到 Applications。Ubuntu：下载 DEB 后运行 `sudo apt install ./Relay-Lab-0.4.0-linux-x64.deb`。AppImage：赋予执行权限后运行；部分系统需要 FUSE 2 兼容库。
+Windows：运行 EXE，按安装向导完成。macOS：打开对应芯片的 DMG，将 Relay Lab 拖到 Applications。Ubuntu：下载 DEB 后运行 `sudo apt install ./Relay-Lab-0.6.0-linux-x64.deb`。AppImage：赋予执行权限后运行；部分系统需要 FUSE 2 兼容库。
 
-Windows: run the EXE installer. macOS: open the DMG for your chip and drag Relay Lab into Applications. Ubuntu: install the DEB with `sudo apt install ./Relay-Lab-0.4.0-linux-x64.deb`. For AppImage, make the file executable and run it; some distributions require FUSE 2 compatibility libraries.
+Windows: run the EXE installer. macOS: open the DMG for your chip and drag Relay Lab into Applications. Ubuntu: install the DEB with `sudo apt install ./Relay-Lab-0.6.0-linux-x64.deb`. For AppImage, make the file executable and run it; some distributions require FUSE 2 compatibility libraries.
 
 桌面包自带运行时，无需另装 Node.js；Claude Code 和 Codex 仍需用户自行安装并登录。界面主要为中文，AI 输出语言可以设置。
 

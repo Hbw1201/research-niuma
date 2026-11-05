@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { scanSkills, loadSelectedSkills } from '../src/skills.mjs';
 import { skillsPage } from '../public/workflow-ui.js';
 
 test('local skill translations are searchable without changing what a saved selection executes', t => {
-  const root = mkdtempSync(path.join(tmpdir(),'skill-translation-'));
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(),'skill-translation-')));
   t.after(()=>rmSync(root,{recursive:true,force:true}));
   const dir=path.join(root,'.agents','skills','example'), data=path.join(root,'.relay-lab');
   mkdirSync(dir,{recursive:true}); mkdirSync(data);

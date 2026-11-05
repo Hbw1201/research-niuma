@@ -55,8 +55,13 @@ try {
     if (fs.existsSync(connection)) {
       const { url } = JSON.parse(fs.readFileSync(connection));
       const state = await fetch(url + '/api/state').then(r => r.json());
-      const html = await fetch(url).then(r => r.text());
-      if (state.version !== pkg.version || state.projects.length !== 0 || !html.includes('科研牛马局')) throw new Error('Fresh packaged service check failed.');
+      const [home, experiments, chats] = await Promise.all([
+        fetch(url).then(r => r.text()),
+        fetch(url + '/experiments/').then(r => r.text()),
+        fetch(url + '/api/home-chat').then(r => r.json()),
+      ]);
+      if (state.version !== pkg.version || state.projects.length !== 0 || chats.chats.length !== 0 ||
+          !home.includes('id="composer"') || !experiments.includes('src="/app.js"')) throw new Error('Fresh packaged service check failed.');
       connected = true; break;
     }
     await new Promise(resolve => setTimeout(resolve, 500));
