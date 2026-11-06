@@ -103,6 +103,7 @@ export class Steering {
       tasks:p.tasks.map(t=>({id:t.index,title:t.title,status:t.status,assessment:t.assessment})),
       exchanges:c.messages.slice(-8).map(m=>({from:m.from,to:m.to,content:m.content.slice(-1500)})),
       intake:p.conversation.slice(-4).map(m=>({role:m.role,content:m.content.slice(-1500)})),
+      councils:(p.stageReviews||[]).slice(-4).map(r=>({kind:r.kind,round:r.number,status:r.status,phase:r.phase,summary:r.synthesis.data?.summary,modificationTasks:r.createdTaskIds,error:r.error})),
       earlierTurns:turns.slice(0,turns.indexOf(turn)).slice(-12).map(t=>({message:t.message,reply:t.reply})),
     };
     const prompt=`你是当前课题的总控 CC。直接与研究者对话，结合以下真实状态回答，必要时使用只读工具核对证据。简洁说明目前情况及下一步。普通问题、设想或请求解释返回 isRequirement=false；只有明确要求更改此课题后续工作的指示返回 true。含糊时先追问。明确指令将按研究者原话加入之后 CC 和 CX 的输入，较新要求修订冲突的旧要求。明确区分“已记录”和“已执行”。进行中的调用不会被改写。不要声称已运行实验、已调整队列或已更改配置，实际进展以项目记录为准。原有问卷、人工确认与授权边界继续适用。\n项目状态：${JSON.stringify(context)}\n本条类型：${turn.mode==='requirement'?'研究者已将此条设为课题要求':'普通对话，判断是否包含明确的新要求'}\n研究者：${turn.message}`;

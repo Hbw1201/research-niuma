@@ -9,6 +9,7 @@ import { Workflow, roles, validatePlan } from '../src/workflow.mjs';
 import { classifyProcess, scanSessions } from '../src/platform.mjs';
 import { startServer } from '../src/server.mjs';
 import { scanSkills } from '../src/skills.mjs';
+import {councilResult} from './fixtures/proposal-council.mjs';
 
 function temp(t){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'relay-test-'));t.after(()=>{const resolved=fs.realpathSync(dir);assert(resolved.startsWith(fs.realpathSync(os.tmpdir())+path.sep));fs.rmSync(resolved,{recursive:true,force:true});});return dir;}
 function fixture(t){const root=temp(t),store=new Store(root);t.after(()=>store.close());const p=store.newProject({title:'Test research',brief:'A real test boundary, no inference.'});p.autonomy.mode='assisted';p.modelPolicy.allowCCSwitch=false;return{root,store,p};}
@@ -95,7 +96,7 @@ test('topic intake has its own folder and requires explicit confirmation before 
   const directory=path.join(root,'separate-topic'),p=store.newProject({title:'Initial idea',directory});
   assert.equal(p.status,'defining');assert.equal(p.intakeConfirmed,false);assert(fs.existsSync(path.join(store.folder(p.id),'project.json')));
   const runner=new Runner(store);let round=0;
-  runner.run=async()=>({job:{sessionId:'mentor-id'},structured:++round===1?{phase:'clarifying',message:'What data is available?',direction:'',ideas:[],researchTopic:'',pipeline:[]}:{phase:'proposal',message:'Please confirm.',direction:'A testable direction',ideas:['A hypothesis'],researchTopic:'Confirmed topic',pipeline:[{title:'Baseline',description:'Implement and verify'}]}});
+  runner.run=async args=>({job:{id:args.id,sessionId:args.sessionId||(args.reviewerId&&args.reviewerId!=='cc'?`session-${args.reviewerId}`:'mentor-id')},structured:args.kind==='intake'?(++round===1?{phase:'clarifying',message:'What data is available?',direction:'',ideas:[],researchTopic:'',pipeline:[]}:{phase:'proposal',message:'Please confirm.',direction:'A testable direction',ideas:['A hypothesis'],researchTopic:'Confirmed topic',pipeline:[{title:'Baseline',description:'Implement and verify'}]}):{...councilResult(args.kind,args.reviewerId),...(args.kind==='proposal-synthesis'?{researchTopic:'Confirmed topic'}:{})}});
   const flow=new Workflow(store,runner,()=>({clis:{cc:{available:true,path:'test'}}}));
   assert.throws(()=>flow.brainstorm(p.id),/确认科研/);assert.throws(()=>flow.activate(p.id),/先与/);
   await flow.chat(p.id,'My initial idea');assert.equal(p.status,'defining');assert.equal(p.conversation.length,2);

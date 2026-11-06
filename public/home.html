@@ -5,36 +5,56 @@
   <title>科研牛马局 · 主页</title>
   <meta name="description" content="用本机 Claude Code 讨论研究想法，进入实验区组织课题和实验。">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/home.css">
+  <link rel="stylesheet" href="/project-files.css">
 </head>
 <body>
 <header class="top">
-  <button id="history-toggle" type="button" aria-controls="history" aria-expanded="false" aria-label="打开对话记录">☰</button>
+  <button id="history-toggle" type="button" aria-controls="history" aria-expanded="true" aria-label="收起导航"><span class="hamburger-icon" aria-hidden="true"><span></span><span></span><span></span></span></button>
   <a class="brand" href="/"><b aria-hidden="true">&gt;_</b> 科研牛马局</a>
   <span class="crumb">主页</span>
-  <a class="lab-link" href="/experiments/">实验区 <span aria-hidden="true">↗</span></a>
+  <a id="lab-link" class="lab-link" href="/experiments/">实验区 <span aria-hidden="true">↗</span></a>
 </header>
 <div class="layout">
   <button id="shade" hidden aria-label="收起对话记录"></button>
-  <aside id="history" aria-label="主页对话记录">
-    <button id="new-chat" class="new-chat" type="button"><span aria-hidden="true">＋</span> 新对话</button>
-    <h2>对话记录</h2><nav id="chat-list" aria-label="历史对话"></nav>
+  <aside id="history" aria-label="对话与项目">
+    <button id="new-chat" class="new-chat" type="button"><span aria-hidden="true">＋</span> 新建独立对话</button>
+    <div id="sidebar-scroll">
+      <h2>独立对话</h2><nav id="chat-list" aria-label="独立对话记录"></nav>
+      <div class="project-section-heading"><h2>项目</h2><button id="new-project" type="button" aria-label="新建项目">＋</button></div>
+      <nav id="project-list" aria-label="项目与项目对话"></nav>
+    </div>
     <div class="workspace"><span>本地工作区</span><strong id="workspace-name">正在连接…</strong></div>
   </aside>
   <main>
     <header class="chat-bar">
-      <div class="agent-label"><span class="spark" aria-hidden="true">✳</span><strong>Claude Code</strong></div>
+      <div class="agent-label"><span class="spark" aria-hidden="true">✳</span><div><strong id="context-title">独立对话</strong><small id="context-path">Claude Code</small></div></div>
+      <button id="show-files" type="button" hidden>共享文件</button>
       <span id="connection" role="status">正在连接</span>
     </header>
     <div id="scroll-pane">
+      <section id="project-create" hidden>
+        <a href="/#new=chat">← 返回对话</a><h1>新建项目</h1>
+        <p>为项目取一个名字，再选择本地文件夹。项目对话、子文件夹和实验区共用这里的文件。</p>
+        <form id="project-form">
+          <label for="project-title">项目名称</label><input id="project-title" name="title" maxlength="120" required placeholder="例如：细胞图像研究">
+          <label for="project-directory">本地文件夹</label><div class="directory-input"><input id="project-directory" name="directory" required placeholder="选择或输入绝对路径"><button id="browse-project" type="button">浏览</button></div>
+          <p>可以选择已有目录，也可以填写尚未存在的新目录；已有文件会保留。</p>
+          <section id="folder-picker" aria-label="选择项目目录" hidden></section>
+          <p id="project-error" role="status" hidden></p>
+          <button type="submit" class="primary" id="create-project">创建项目</button>
+        </form>
+      </section>
       <div id="welcome">
         <div class="welcome-mark" aria-hidden="true">✳</div>
-        <h1>和 Claude Code 聊聊</h1>
-        <p>从一个研究想法、一段代码，或当前工作区的文件开始。</p>
+        <h1 id="welcome-title">和 Claude Code 聊聊</h1>
+        <p id="welcome-copy">直接开始独立对话，或在左侧选择一个项目。</p>
         <div class="suggestions"><button data-prompt="帮我梳理一个研究想法：" type="button">梳理研究想法 ↗</button><button data-prompt="请查看当前工作区的目录结构，并介绍主要文件。" type="button">了解工作区 ↗</button></div>
       </div>
+      <section id="project-files-panel" hidden><div id="home-project-files"></div></section>
       <section id="transcript" aria-label="对话内容"></section>
     </div>
     <div class="compose-wrap">
+      <div id="scope-bar"><span id="scope-label">独立对话</span><button id="choose-chat-folder" type="button" hidden>选择子文件夹</button></div>
       <p id="notice" role="status" hidden></p>
       <form id="composer"><label class="sr-only" for="message">发送给 Claude Code</label>
         <textarea id="message" rows="2" maxlength="20000" placeholder="给 Claude Code 发消息…" required></textarea>

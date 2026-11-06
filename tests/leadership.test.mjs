@@ -8,6 +8,7 @@ import {Workflow} from '../src/workflow.mjs';
 import {Runner} from '../src/runner.mjs';
 import {activeWorkers,prepareLeadership} from '../src/leadership.mjs';
 import {startServer} from '../src/server.mjs';
+import {stageResult} from './fixtures/stage-council.mjs';
 
 function fixture(t){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'niuma-leader-')),store=new Store(root),p=store.newProject({title:'Autonomous fixture',brief:'Compare approaches and deliver an evidence-based analysis.'}),runner=new Runner(store),flow=new Workflow(store,runner,()=>({clis:{cc:{available:true,path:'cc'},cx:{available:true,path:'cx'}}}));
@@ -31,6 +32,7 @@ test('leader chooses team, adds CX after results, changes models, archives used 
   const {p,store,runner,flow}=fixture(t);let organizations=0,executions=0,checkpoints=0;const calls=[];
   runner.run=async args=>{
     calls.push(args);
+    if(args.kind.startsWith('stage-'))return {job:{id:args.id,sessionId:args.sessionId||(args.reviewerId==='cc'?'mentor':'reviewer-'+args.reviewerId)},structured:stageResult(args,p,{alwaysPass:true})};
     if(args.kind==='leadership'){
       organizations++;
       if(organizations===1)return answer(args,team(p,[config(p.architecture.workers[0],{model:'small'}),config(p.architecture.workers[1])],2));

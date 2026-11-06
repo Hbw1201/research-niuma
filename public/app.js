@@ -1,4 +1,6 @@
 import {markdown} from './markdown.js';
+import {ProjectFilesView} from './project-files.js';
+const sharedFiles=new ProjectFilesView();
 import {ControlChat} from './control-chat.js';
 import {frame, projectList} from './workspace-ui.js';
 import {collaborationPage,pipelinePage} from './pipeline-ui.js';
@@ -10,11 +12,11 @@ let selectedNode='',pipelineStage='all',traceLayout='';
 const traceView=()=>traceLayout||(matchMedia('(max-width:720px)').matches?'list':'graph');
 let sessionWorkerId='cc',renderedKey='',renderedTeamRevision=-1,resetDrafts=false;
 let state,view='overview',projectId=localStorage.getItem('relay-project')||'',selectedDoc='',doc=null,sessionFilter='all',connected=true,renderPending=false;
-const statuses={collaborating:'CC ↔ CX 协作中',awaiting_decision:'等待研究者判断',paused:'协作已暂停',cycle_complete:'本轮完成 / 待研究判断',returned:'已回报',passed:'CC 复核通过',retry:'需要调整',blocked:'等待材料或判断',defining:'目标澄清中',chatting:'CC 导师回复中',team_chatting:'CC 讨论分工中',proposal:'待确认研究方向',draft:'尚未开始',brainstorming:'CC 讨论中',awaiting_review:'等待批阅',planning:'CC 拆解中',ready:'等待执行',executing:'CX 执行中',executed:'等待 CC 汇总',reviewing:'CC 复核中',completed:'已完成',failed:'失败',interrupted:'已中断',running:'运行中',queued:'排队中',cancelled:'已停止',cancelling:'停止中',approved:'已批准',rejected:'已否决',revise:'要求修改',pending:'待批阅'};
+const statuses={superseded:'已被新版本替代',collaborating:'CC ↔ CX 协作中',awaiting_decision:'等待研究者判断',paused:'协作已暂停',cycle_complete:'本轮完成 / 待研究判断',returned:'已回报',passed:'CC 复核通过',retry:'需要调整',blocked:'等待材料或判断',defining:'目标澄清中',chatting:'CC 导师回复中',team_chatting:'CC 讨论分工中',proposal_reviewing:'提案评委会评审中',proposal:'待确认修订提案',draft:'尚未开始',brainstorming:'CC 讨论中',awaiting_review:'等待批阅',planning:'CC 拆解中',ready:'等待执行',executing:'CX 执行中',executed:'等待 CC 汇总',reviewing:'CC 复核中',completed:'已完成',failed:'失败',interrupted:'已中断',running:'运行中',queued:'排队中',cancelled:'已停止',cancelling:'停止中',approved:'已批准',rejected:'已否决',revise:'要求修改',pending:'待批阅'};
 let drawer=false, listFilter='all', routed=false, lastRoute='', renderedCatalog=null, refreshSequence=0;
 const reviewDrafts=new Map();
 let composing=false;
-const routeViews=new Set(['overview','new','settings','sessions','collaboration','pipeline','architecture','documents','session','mentor','review','execution','skills']);
+const routeViews=new Set(['overview','new','settings','sessions','collaboration','pipeline','architecture','documents','files','session','mentor','review','execution','skills']);
 function restoreRoute(){
   const params=new URLSearchParams(location.hash.slice(1)),id=params.get('project');
   const target=params.get('view')||'overview';
@@ -50,7 +52,7 @@ function loadRouteData(){
 matchMedia('(max-width:720px)').addEventListener('change',()=>{drawer=false;if(state)render();});
 window.addEventListener('popstate',()=>{if(state){restoreRoute();lastRoute=routeParams();render();loadRouteData();}});
 const project=()=>state?.projects.find(p=>p.id===projectId);
-const busy=p=>p&&['brainstorming','planning','executing','reviewing','chatting','team_chatting','collaborating'].includes(p.status);
+const busy=p=>p&&['proposal_reviewing','brainstorming','planning','executing','reviewing','chatting','team_chatting','collaborating'].includes(p.status);
 const label=s=>s==='superseded'?'CC 已取消 / 保留记录':statuses[s]||s;
 const badge=s=>`<span class="badge ${['completed','approved'].includes(s)?'ok':['failed','rejected'].includes(s)?'bad':['running','awaiting_review','revise','brainstorming','executing','planning'].includes(s)?'warn':''}">${esc(label(s))}</span>`;
 const time=s=>s?new Date(s).toLocaleTimeString('zh-CN',{hour12:false}):'--:--:--';
@@ -108,9 +110,10 @@ function render(){
     mentor:()=>mentorPage(context()),architecture:()=>architecturePage(context()),
     session:()=>sessionDetail(context(),sessionWorkerId),
     skills:()=>skillsPage(context(),skillCatalog,currentSkillSelection()),
-    review:reviewView,execution:executionView,documents:documentsView,sessions:sessionsView,settings:settingsView,
+    review:reviewView,execution:executionView,documents:documentsView,files:()=>p?head('共享文件',p.title,'<button data-view="documents">Markdown 交接文档</button>')+'<div id="experiment-project-files"></div>':noProject(),sessions:sessionsView,settings:settingsView,
   };
   $('#app').innerHTML=frame(context(),{view,content:pages[view](),connected,drawer});
+  if(view==='files'&&p)sharedFiles.mount($('#experiment-project-files'),{projectId:p.id,workspace:state.workspace,token:state.token});
   control.update(state,p,Boolean($('#control-launch')));
   if(drawer)$('#work-content').inert=true;
   updateRoute();
@@ -172,10 +175,13 @@ document.addEventListener('click',async event=>{const b=event.target.closest('bu
   if(a==='folder-select'){newDraft.directory=b.dataset.path;folderState=null;render();}
   if(['goto-mentor','goto-progress','goto-architecture','goto-skills','goto-pipeline','goto-collaboration'].includes(a)){view=a.slice(5);render();if(['skills','architecture'].includes(view))await loadSkills();}
   if(a==='trace-layout'){traceLayout=b.dataset.id;render();}
+  if(a==='continue-council'){await perform('collaborate');toast('已启动评审与修改循环，Pipeline 将持续更新。');}
+  if(a==='council-node'){pipelineStage='all';selectedNode=b.dataset.id;view='pipeline';render();$('.node-inspector')?.focus();}
   if(a==='pipeline-node'){selectedNode=b.dataset.id;render();$('.node-inspector')?.focus();}
   if(a==='pipeline-stage'){pipelineStage=b.dataset.id;selectedNode='';render();}
   if(a==='open-session'){sessionWorkerId=b.dataset.id;view='session';render();}
   if(a==='accept-team'){await perform('accept-team',{proposalId:b.dataset.id});toast('已采纳 CC 团队建议。');}
+  if(a==='review-proposal'){await perform('proposal-review');toast('评委会已启动，将依次完成独立评审、互评和主导师修订。');}
   if(a==='activate'){await perform('activate');view='collaboration';render();toast('科研主题已确认，进入课题 pipeline。');}
   if(a==='refresh-skills')await loadSkills();
   if(a==='save-skills'){await perform('skills',{ids:[...currentSkillSelection()]});toast('已保存本课题的技能选择。');}

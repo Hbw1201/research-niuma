@@ -21,6 +21,8 @@ export function upgradeProject(p) {
   p.autonomy ||= defaultAutonomy('assisted');p.teamChanges ||= [];
   p.steering ||= {revision:0,turns:[],sessionId:''};
   p.teamConversation ||= [];p.modelChanges ||= [];
+  p.proposalReviews ||= [];
+  p.stageReviews ||= [];p.stageReviewRevisions ||= {};
   p.collaboration ||= {state:'idle',maxReviews:8,reviewsUsed:0,messages:[],reviews:[],pendingDecision:null};
   p.collaboration.messages ||= [];p.collaboration.reviews ||= [];
   for(const w of p.architecture.workers){w.model ??='';w.language ??='';w.skillIds ||= [];w.active ??= true;w.pinned ??= false;}
@@ -49,7 +51,9 @@ export class Store {
       for(const p of this.state.projects)for(const t of p.steering.turns)if(['queued','replying'].includes(t.status)){t.status='interrupted';t.error='工作台已重启，可重试这条消息。';}
       recoverUsage(this.state,id=>this.folder(id));
       for (const job of this.state.jobs) if (['running', 'queued', 'cancelling'].includes(job.status)) { job.status = 'interrupted'; job.error = '工作台在此任务完成前退出；请检查产物后手动重试。'; }
-      for (const p of this.state.projects) { if (['brainstorming','planning','executing','reviewing','chatting','team_chatting'].includes(p.status)) p.status = 'interrupted'; for (const t of p.tasks || []) if (['running','queued'].includes(t.status)) t.status = 'interrupted'; }
+      for(const p of this.state.projects)for(const r of p.proposalReviews)if(r.status==='running'){r.status='interrupted';r.error='工作台已重启，已完成的评审保留；继续后仅补齐未完成步骤。';p.status='interrupted';for(const step of [...r.reviewers.flatMap(m=>[m.independent,m.cross]),r.synthesis])if(step.status==='running')step.status='interrupted';}
+      for(const p of this.state.projects)for(const r of p.stageReviews)if(r.status==='running'){r.status='interrupted';r.error='工作台已重启，继续协作后恢复未完成的评审与修改。';for(const step of [...r.reviewers.flatMap(m=>[m.independent,m.cross]),r.synthesis])if(step.status==='running')step.status='interrupted';}
+      for (const p of this.state.projects) { if (['proposal_reviewing','brainstorming','planning','executing','reviewing','chatting','team_chatting'].includes(p.status)) p.status = 'interrupted'; for (const t of p.tasks || []) if (['running','queued'].includes(t.status)) t.status = 'interrupted'; }
       for(const p of this.state.projects)if(p.collaboration.state==='running'){p.collaboration.state='paused';p.collaboration.pauseReason='工作台已退出，历史步骤保留；点击继续后恢复反馈与待办。';p.status='interrupted';}
       this.save();
     } catch (e) { this.close(); throw e; }

@@ -1,4 +1,6 @@
 import {Steering} from './steering.mjs';
+import {ProposalCouncil,reviewReady,proposalText} from './proposal-review.mjs';
+import {StageCouncil} from './stage-council.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { capture, invocation } from './platform.mjs';
@@ -25,7 +27,7 @@ export const brainstormSchema = { type: 'object', additionalProperties: false, r
 export const planSchema = { type: 'object', additionalProperties: false, required: ['summary','tasks'], properties: {
   summary: str, tasks: { type: 'array', minItems:1, maxItems:8, items: { type:'object', additionalProperties:false, required:['title','instructions','acceptance','questionIds','workerId','researchStage'], properties:{title:str,instructions:str,acceptance:str,workerId:str,researchStage:{type:'string',enum:stageIds},questionIds:{type:'array', minItems:1, items:str}} } }
 } };
-export const intakeSchema={type:'object',additionalProperties:false,required:['message','phase','direction','ideas','researchTopic','pipeline'],properties:{message:str,phase:{type:'string',enum:['clarifying','proposal']},direction:str,ideas:{type:'array',items:str},researchTopic:str,pipeline:{type:'array',items:{type:'object',additionalProperties:false,required:['title','description'],properties:{title:str,description:str}}}}};
+export const intakeSchema={type:'object',additionalProperties:false,required:['message','phase','direction','ideas','researchTopic','pipeline','proposal'],properties:{message:str,phase:{type:'string',enum:['clarifying','proposal']},direction:str,proposal:str,ideas:{type:'array',items:str},researchTopic:str,pipeline:{type:'array',items:{type:'object',additionalProperties:false,required:['title','description'],properties:{title:str,description:str}}}}};
 
 function structured(result) {
   if (result.structured) return result.structured;
@@ -35,7 +37,10 @@ function structured(result) {
 export function validateBrainstorm(data) {
   assert(data && typeof data.summary === 'string' && Array.isArray(data.perspectives) && data.perspectives.length === 4, 'CC 的讨论结果缺少四个视角。');
   assert(new Set(data.perspectives.map(p => p.role)).size === 4 && data.perspectives.every(p => roles.some(r => r.key === p.role) && typeof p.analysis === 'string' && p.analysis.trim()), 'CC 返回的讨论视角不完整。');
-  assert(Array.isArray(data.questions) && data.questions.length > 0 && data.questions.length <= 12, 'CC 问卷格式错误。');
+  return validateQuestionnaire(data);
+}
+function validateQuestionnaire(data) {
+  text(data?.summary);assert(Array.isArray(data.questions) && data.questions.length > 0 && data.questions.length <= 12, 'CC 问卷格式错误。');
   for (const q of data.questions) { text(q.title, 2000); text(q.why); text(q.recommendation); assert(Array.isArray(q.options) && q.options.length >= 2 && q.options.length <= 5 && q.options.every(x => typeof x === 'string' && x.trim() && x.length <= 2000), '问卷选项格式错误。'); }
   return data;
 }
@@ -48,7 +53,7 @@ export function validatePlan(data, questions, workers) {
 }
 
 export class Workflow {
-  constructor(store, runner, getScan) { this.store = store; this.runner = runner; this.getScan = getScan; this.busy = new Set(); this.pumps = new Map(); this.modelSelections=new Map();this.models=modelCatalog;this.collaboration=new Collaboration(this);this.leadership=new Leadership(this);this.steering=new Steering(this); }
+  constructor(store, runner, getScan) { this.store = store; this.runner = runner; this.getScan = getScan; this.busy = new Set(); this.pumps = new Map(); this.modelSelections=new Map();this.operations=new Map();this.council=new ProposalCouncil(this);this.stageCouncil=new StageCouncil(this);this.models=modelCatalog;this.collaboration=new Collaboration(this);this.leadership=new Leadership(this);this.steering=new Steering(this); }
   cli(provider) { const cli = this.getScan()?.clis?.[provider]; assert(cli?.available, `${provider === 'cc' ? 'Claude Code' : 'Codex'} 尚未就绪，请先完成本机扫描或在设置中指定程序路径。`, 409); return cli.path; }
   idle(id) { assert(!this.busy.has(id) && !this.pumps.has(id)&&!this.collaboration.active.has(id), '此课题已有任务运行中。', 409); }
   collaborate(id,input={}){return this.collaboration.start(id,input);}
@@ -114,26 +119,39 @@ export class Workflow {
   }
   chat(id,message) {
     const p=this.store.project(id),executable=this.cli('cc');this.idle(id);assert(!p.intakeConfirmed,'课题已进入 pipeline。请在原课题中执行，或新建课题讨论新方向。',409);
-    const content=text(message,20000);p.conversation.push({id:uid(),role:'user',content,at:now()});
+    const content=text(message,20000);p.proposalReviewRequired=true;p.conversation.push({id:uid(),role:'user',content,at:now()});
     this.writeConversation(p);
     const history=p.conversation.map(m=>`${m.role==='user'?'研究者':'CC 导师'}：${m.content}`).join('\n\n');
     const prompt=`你是这个课题的科研导师 CC。课题初始 title：${p.title}。课题文件夹：${p.directory}。\n\n请和研究者逐步澄清 idea、目标、已有工作、数据、算力、评价标准和边界，每轮只追问最关键的 1–3 个问题，避免上来要求一份完整方案。不要调用 CX，不执行实现。\n完整讨论记录：\n${history}\n\n当目标还不清晰时 phase=clarifying，message 是你自然的回复和追问，其他字段可为空字符串或空数组。当已有足够信息时 phase=proposal，给出 direction、ideas、researchTopic 和可操作的科研 pipeline（3–8 步）。覆盖本课题适用的问题/文献、假设与研究设计、数据/实验准备、最小验证、正式实验、分析复核、写作与复现归档；每步写明产出、判断证据和失败时返回哪里，不将 CC/CX 调用阶段当作科研阶段；message 解释方向依据和待确认事项。pipeline 每步含 title 和 description。不得编造文献、数据与实验结果。所有内容中文。研究者明确点击确认前不得自动立项。`;
-    return this.launch(id,'chatting',async()=>{
-      const result=await this.runner.run({projectId:id,provider:'cc',kind:'intake',title:'CC 导师 · 澄清研究目标',executable,cwd:this.store.folder(id),prompt,schema:intakeSchema,sessionId:p.ccSessionId||undefined});
+    return this.launch(id,'chatting',async token=>{
+      const result=await this.runner.run({projectId:id,provider:'cc',kind:'intake',title:'主导师 CC · 澄清目标与起草提案',executable,cwd:this.store.folder(id),prompt:prompt+'\n当 phase=proposal 时，proposal 字段提供 Markdown 提案初稿，说明问题、假设、方法、实验与资源约束、证据缺口和失败标准。初稿之后由三位独立 CC 评委审查并互评，你再逐条回应修订，研究者确认修订稿后才进入问卷与 CX 执行。clarifying 时 proposal 可为空。若这是新一轮修改，结合此前修订稿与评委意见继续完善：'+JSON.stringify(p.proposal||null),schema:intakeSchema,sessionId:p.ccSessionId||undefined});
+      if(token.cancelled)throw Object.assign(new Error('立项讨论已停止。'),{cancelled:true});
       const data=structured(result);text(data.message,30000);assert(['clarifying','proposal'].includes(data.phase),'CC 讨论阶段格式错误。');
       if(data.phase==='proposal'){text(data.direction);text(data.researchTopic);assert(Array.isArray(data.ideas)&&data.ideas.every(i=>typeof i==='string')&&Array.isArray(data.pipeline)&&data.pipeline.length>=1&&data.pipeline.length<=12,'CC 尚未提供完整科研主题和 pipeline。');for(const s of data.pipeline){text(s.title,500);text(s.description,10000);}p.proposal=data;}
       else p.proposal=null;
       p.conversation.push({id:uid(),role:'assistant',content:data.message,at:now()});p.ccSessionId=result.job.sessionId||p.ccSessionId;p.status=data.phase==='proposal'?'proposal':'defining';this.writeConversation(p);
       if(p.proposal)this.store.doc(id,'06-research-proposal.md','待确认的科研主题与 pipeline',this.proposalMarkdown(p),'proposal');
-      this.store.log(data.phase==='proposal'?'CC 已提出方向，等待你确认科研主题。':'CC 导师已回复，等待补充研究想法。',id);
+      this.store.log(data.phase==='proposal'?'主 CC 已形成初稿，开始三位独立 CC 评委的评审与互评。':'CC 导师已回复，等待补充研究想法。',id);
+      if(p.proposal)await this.council.run(id,token);
     });
   }
   writeConversation(p){this.store.doc(p.id,'03-mentor-conversation.md','与 CC 导师的讨论',`# ${p.title}：立项讨论\n\n`+p.conversation.map(m=>`## ${m.role==='user'?'研究者':'CC 导师'} · ${m.at}\n\n${m.content}`).join('\n\n'),'conversation');}
-  proposalMarkdown(p){const x=p.proposal;return `# ${x.researchTopic}\n\n## 研究方向\n\n${x.direction}\n\n## Ideas\n\n${x.ideas.map(i=>'- '+i).join('\n')}\n\n## Pipeline\n\n${x.pipeline.map((s,i)=>`### ${i+1}. ${s.title}\n\n${s.description}`).join('\n\n')}`;}
-  activate(id){const p=this.store.project(id);this.idle(id);assert(p.proposal&&!p.intakeConfirmed,'请先与 CC 澄清目标并得到研究方向。',409);p.researchTopic=p.proposal.researchTopic;p.pipeline=p.proposal.pipeline;p.brief=this.proposalMarkdown(p);p.intakeConfirmed=true;p.status='draft';this.store.doc(id,'00-brief.md','已确认的科研主题',p.brief,'brief');this.store.log('研究者已确认科研主题，课题进入 pipeline。',id);this.runner.changed();}
+  proposalMarkdown(p){return proposalText(p.proposal);}
+  reviewProposal(id){
+    const p=this.store.project(id);this.idle(id);assert(p.proposal,'请先与主导师讨论并形成提案。',409);assert(!p.tasks.length,'已有实验任务的课题保留当前记录；请新建课题评审新提案。',409);assert(!reviewReady(p),'当前提案已完成评审，可确认或继续与主导师讨论修改。',409);this.cli('cc');
+    if(p.intakeConfirmed){
+      p.proposalHistory||=[];const previous={id:uid(),at:now(),proposal:p.proposal,brief:p.brief,pipeline:p.pipeline||[],questions:p.questions,round:p.round||0};p.proposalHistory.push(previous);
+      this.store.doc(id,`06-before-council-${previous.id}.md`,'提交评委会前的已确认方案与决策',`${p.brief}\n\n## 原有问卷与决定\n\n${p.questions.map(q=>`### ${q.title}\n\n${q.decision} · ${q.answer||''}\n\n${q.comment||''}`).join('\n\n')}`,'proposal-history');
+      p.intakeConfirmed=false;p.proposalReviewRequired=true;p.questions=[];p.perspectives=[];p.pipeline=[];
+    }
+    return this.launch(id,'proposal_reviewing',token=>this.council.run(id,token));
+  }
+  activate(id){const p=this.store.project(id);this.idle(id);assert(p.proposal&&!p.intakeConfirmed,'请先与 CC 澄清目标并得到研究方向。',409);assert(reviewReady(p),'请先完成三位 CC 评委的评审、互评与主导师修订，再确认提案。',409);p.researchTopic=p.proposal.researchTopic;p.pipeline=p.proposal.pipeline;p.brief=this.proposalMarkdown(p)+'\n\n## 评审回应\n\n'+p.proposal.decisions.map(x=>`- ${x.issueId} / ${x.action}：${x.reason}；修改：${x.change}`).join('\n')+'\n\n## 待研究者决定\n\n'+p.proposal.openQuestions.map(x=>'- '+x).join('\n');p.intakeConfirmed=true;p.status='draft';this.store.doc(id,'00-brief.md','已确认的科研主题',p.brief,'brief');this.store.log('研究者已确认评审后的科研提案，课题进入研究设计与问卷。',id);this.runner.changed();}
   launch(id, stage, action) {
     const p = this.store.project(id); this.idle(id); this.busy.add(id); p.status = stage; p.error = ''; this.runner.changed();
-    const promise = Promise.resolve().then(action).catch(e => { const job=this.store.state.jobs.find(j=>j.id===e.jobId);p.status = job?.status==='cancelled'?'interrupted':'failed'; p.error = e.message; this.store.log(e.message, id, 'error'); }).finally(()=>{ this.busy.delete(id); this.runner.changed(); });
+    const token={cancelled:false};this.operations.set(id,token);
+    const promise = Promise.resolve().then(()=>{if(token.cancelled)throw Object.assign(new Error('任务已停止。'),{cancelled:true});return action(token);}).catch(e => { const job=this.store.state.jobs.find(j=>j.id===e.jobId);p.status = token.cancelled||e.cancelled||job?.status==='cancelled'?'interrupted':'failed'; p.error = e.message; this.store.log(e.message, id, 'error'); }).finally(()=>{ this.busy.delete(id);this.operations.delete(id); this.runner.changed(); });
+    token.promise=promise;
     return promise;
   }
   brainstorm(id, revise = false) {
@@ -141,19 +159,22 @@ export class Workflow {
     assert(p.intakeConfirmed,'请先与 CC 讨论并确认科研主题。',409);
     assert(!p.tasks.some(t=>t.status === 'completed'), '已有执行产物，请新建课题以保留当前批阅和执行记录。', 409);
     const dir = this.store.folder(id), brief = fs.readFileSync(path.join(dir,'00-brief.md'),'utf8');
-    const agents = Object.fromEntries(roles.map(r=>[r.key,{description:r.title,prompt:r.prompt,tools:['Read','Glob','Grep','WebSearch','WebFetch']} ]));
+    const councilReviewed=Boolean(p.proposalReviews?.some(r=>r.status==='completed'));
+    const agents = councilReviewed?undefined:Object.fromEntries(roles.map(r=>[r.key,{description:r.title,prompt:r.prompt,tools:['Read','Glob','Grep','WebSearch','WebFetch']} ]));
     const review = revise ? '\n研究者批阅（必须据此重做问卷，保留有用结论）：\n' + JSON.stringify(p.questions) : '';
-    const prompt = `你是科研协调者 CC。研究目标如下（完整原文来自 00-brief.md）：\n${brief}\n\n请调用四个已定义的原生子智能体 novelty、methods、experiments、skeptic，分别完成独立讨论。收齐结果后交叉比较，保留分歧，输出 summary、4 个 perspectives 和 1–12 个需要研究者决定的 questions。每题给 2–5 个选项、理由和建议。不要代替研究者批准，不要实施代码。区分已知事实、假设和待验证事项。不编造论文、数据或实验结果。所有内容中文。输出必须符合 JSON Schema。科研流程不是 AI 调用顺序：先厘清问题与文献证据，再设计可检验假设、数据和实验、基线、正式实验、分析与复现。问卷只包含当前必须由研究者决定的研究设计与边界，后续证据可触发新一轮决策。你的结果由工作台写成 Markdown 交接文档。${review}`;
+    const prompt = `你是科研协调者 CC。研究目标如下（完整原文来自 00-brief.md）：\n${brief}\n\n${councilReviewed?'三位 CC 评委已完成独立评审与互评，研究者已确认你的修订稿。现在根据修订稿、意见回应和未决问题生成 summary 与 1–12 个 questions，不再重复四视角头脑风暴。':'请调用四个已定义的原生子智能体 novelty、methods、experiments、skeptic，分别完成独立讨论。收齐结果后交叉比较，保留分歧，输出 summary、4 个 perspectives 和 1–12 个需要研究者决定的 questions。'}每题给 2–5 个选项、理由和建议。不要代替研究者批准，不要实施代码。区分已知事实、假设和待验证事项。不编造论文、数据或实验结果。所有内容中文。输出必须符合 JSON Schema。科研流程不是 AI 调用顺序：先厘清问题与文献证据，再设计可检验假设、数据和实验、基线、正式实验、分析与复现。问卷只包含当前必须由研究者决定的研究设计与边界，后续证据可触发新一轮决策。你的结果由工作台写成 Markdown 交接文档。${review}`;
     const round = (p.round || 0) + 1;
     this.store.doc(id, `01-cc-request-r${round}.md`, `CC 讨论指令 · 第 ${round} 轮`, prompt, 'request');
     return this.launch(id, 'brainstorming', async()=>{
-      const result = await this.runner.run({projectId:id,provider:'cc',kind:'brainstorm',title:'CC · 四视角头脑风暴',executable,cwd:dir,prompt,schema:brainstormSchema,agents,sessionId:p.ccSessionId || undefined});
-      const data = validateBrainstorm(structured(result));
+      const schema=councilReviewed?{...brainstormSchema,required:['summary','questions'],properties:{summary:str,questions:brainstormSchema.properties.questions}}:brainstormSchema;
+      const result = await this.runner.run({projectId:id,provider:'cc',kind:'brainstorm',title:councilReviewed?'主导师 CC · 根据评审提案生成问卷':'CC · 四视角头脑风暴',executable,cwd:dir,prompt,schema,agents,sessionId:p.ccSessionId || undefined});
+      const raw=structured(result);
+      const data = councilReviewed?validateQuestionnaire(raw):validateBrainstorm(raw);
       p.ccSessionId = result.job.sessionId || p.ccSessionId; p.round = round;
-      p.summary = data.summary; p.perspectives = data.perspectives;
+      p.summary = data.summary; p.perspectives = councilReviewed?[]:data.perspectives;
       p.questions = data.questions.map((q,i)=>({...q,id:`q${i+1}`,decision:'pending',answer:'',comment:''}));
       p.tasks = [];
-      for (const [i,r] of roles.entries()) this.store.doc(id, `1${i}-${r.key}-r${round}.md`, r.title, `# ${r.title}\n\n${data.perspectives.find(p=>p.role===r.key).analysis}\n`, 'discussion');
+      if(!councilReviewed)for (const [i,r] of roles.entries()) this.store.doc(id, `1${i}-${r.key}-r${round}.md`, r.title, `# ${r.title}\n\n${data.perspectives.find(p=>p.role===r.key).analysis}\n`, 'discussion');
       this.store.doc(id, `20-questionnaire-r${round}.md`, `研究决策问卷 · 第 ${round} 轮`, `# ${p.title}：决策问卷\n\n${data.summary}\n\n`+p.questions.map((q,i)=>`## ${i+1}. ${q.title}\n\n${q.why}\n\n${q.options.map((o,j)=>`- ${String.fromCharCode(65+j)}. ${o}`).join('\n')}\n\n**CC 建议：** ${q.recommendation}\n`).join('\n'), 'questionnaire');
       p.status = 'awaiting_review'; this.store.log('CC 已完成讨论，等待你逐项批阅。', id);
     });
@@ -235,6 +256,7 @@ export class Workflow {
     });
   }
   stopProject(id) {
+    const operation=this.operations.get(id);if(operation)operation.cancelled=true;
     this.collaboration.stop(id);this.steering.stop(id);
     this.store.project(id); const token=this.pumps.get(id);if(token)token.cancelled=true;
     for(const j of this.store.state.jobs.filter(j=>j.projectId===id&&j.status==='running')) {try{this.runner.cancel(j.id);}catch{}}
@@ -261,6 +283,7 @@ export class Workflow {
   summarize(id) {
     const p=this.store.project(id),executable=this.cli('cc');this.idle(id);
     assert(p.tasks.length&&p.tasks.every(t=>t.status==='completed'),'请先完成全部 CX 任务。',409);
+    for(const kind of ['results','manuscript'])assert(!this.stageCouncil.scope(p,kind).length||this.stageCouncil.approved(p,kind),'请先继续协作，完成实验结果或论文初稿的三位评委评审与复审。',409);
     const reports=p.tasks.map(t=>`## CX-${t.index}\n验收要求：${t.acceptance}\n\n${this.store.readDoc(id,t.reportId).content}`).join('\n\n');
     const prompt=`你是 CC。请审阅以下 CX 自报的结果，与验收标准逐项比较，汇总为 Markdown 研究执行报告。指出未经独立验证的主张、未完成项与后续建议，不把 CX 自报成功当作独立验收通过。不要再启动实现任务。\n\n${reports}`;
     return this.launch(id,'reviewing',async()=>{const result=await this.runner.run({projectId:id,provider:'cc',kind:'summary',title:'CC · 汇总与复核',executable,cwd:this.store.folder(id),prompt,sessionId:p.ccSessionId||undefined});this.store.doc(id,'50-cc-summary.md','CC 最终汇总',result.text,'summary');p.status='completed';this.store.log('CC 已提交汇总报告。',id);});

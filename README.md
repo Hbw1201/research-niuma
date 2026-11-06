@@ -9,21 +9,21 @@ A local research workbench for **Claude Code (CC) × Codex (CX)**, with Markdown
 
 > “牛马” is a playful Chinese internet expression for tireless workers. Here, the AI agents take that role. The application is an independent community project and is not affiliated with Anthropic or OpenAI.
 
-> **v0.6.0**：打开应用即可与本机 Claude Code 对话；进入「实验区」即可管理科研课题、团队和技能。
-> **v0.6.0** opens on a chat with your local Claude Code CLI. Enter Experiments to manage research projects, teams, and skills.
+> **v0.7.0**：独立对话与项目对话共享本地文件；三位 CC 评委参与提案、实验结果和论文初稿的持续评审，CX 修改与复审过程完整呈现在 Pipeline。
+> **v0.7.0** adds independent and project chats with shared local files, plus three CC reviewers for proposals, experiment results, and manuscript drafts. Pipeline shows CX corrections and resubmission rounds.
 
 ## 下载安装 / Download
 
-**[GitHub Releases · v0.6.0](https://github.com/Hbw1201/research-niuma/releases/tag/v0.6.0)** · [最新版本 / Latest release](https://github.com/Hbw1201/research-niuma/releases/latest)
+**[GitHub Releases · v0.7.0](https://github.com/Hbw1201/research-niuma/releases/tag/v0.7.0)** · [最新版本 / Latest release](https://github.com/Hbw1201/research-niuma/releases/latest)
 
 | 系统 / Platform | 直接下载 / Direct download | 安装 / Install |
 |---|---|---|
-| Windows x64 | [EXE installer](https://github.com/Hbw1201/research-niuma/releases/download/v0.6.0/Relay-Lab-Setup-0.6.0-x64.exe) | 运行安装向导 / Run the installer |
-| macOS Apple Silicon · M 系列 | [ARM64 DMG](https://github.com/Hbw1201/research-niuma/releases/download/v0.6.0/Relay-Lab-0.6.0-macos-arm64.dmg) | 拖入 Applications / Drag into Applications |
-| macOS Intel | [x64 DMG](https://github.com/Hbw1201/research-niuma/releases/download/v0.6.0/Relay-Lab-0.6.0-macos-x64.dmg) | 拖入 Applications / Drag into Applications |
-| Ubuntu / Debian x64 | [DEB package](https://github.com/Hbw1201/research-niuma/releases/download/v0.6.0/Relay-Lab-0.6.0-linux-x64.deb) | `sudo apt install ./Relay-Lab-0.6.0-linux-x64.deb` |
-| Linux x64 portable | [AppImage](https://github.com/Hbw1201/research-niuma/releases/download/v0.6.0/Relay-Lab-0.6.0-linux-x64.AppImage) | 赋予执行权限后运行 / Make executable, then run |
-| 跨平台终端 / CLI · Node.js 22+ | [npm tarball](https://github.com/Hbw1201/research-niuma/releases/download/v0.6.0/relay-lab-0.6.0.tgz) | `npm install -g ./relay-lab-0.6.0.tgz` |
+| Windows x64 | [EXE installer](https://github.com/Hbw1201/research-niuma/releases/download/v0.7.0/Relay-Lab-Setup-0.7.0-x64.exe) | 运行安装向导 / Run the installer |
+| macOS Apple Silicon · M 系列 | [ARM64 DMG](https://github.com/Hbw1201/research-niuma/releases/download/v0.7.0/Relay-Lab-0.7.0-macos-arm64.dmg) | 拖入 Applications / Drag into Applications |
+| macOS Intel | [x64 DMG](https://github.com/Hbw1201/research-niuma/releases/download/v0.7.0/Relay-Lab-0.7.0-macos-x64.dmg) | 拖入 Applications / Drag into Applications |
+| Ubuntu / Debian x64 | [DEB package](https://github.com/Hbw1201/research-niuma/releases/download/v0.7.0/Relay-Lab-0.7.0-linux-x64.deb) | `sudo apt install ./Relay-Lab-0.7.0-linux-x64.deb` |
+| Linux x64 portable | [AppImage](https://github.com/Hbw1201/research-niuma/releases/download/v0.7.0/Relay-Lab-0.7.0-linux-x64.AppImage) | 赋予执行权限后运行 / Make executable, then run |
+| 跨平台终端 / CLI · Node.js 22+ | [npm tarball](https://github.com/Hbw1201/research-niuma/releases/download/v0.7.0/relay-lab-0.7.0.tgz) | `npm install -g ./relay-lab-0.7.0.tgz` |
 
 桌面包自带运行时，无需另装 Node.js。Claude Code 和 Codex 需要自行安装并登录。AppImage 在部分 Linux 系统需要 FUSE 2 兼容库，也可选择 DEB。
 
@@ -31,7 +31,7 @@ Desktop packages include their runtime. Install and authenticate Claude Code and
 
 **签名状态 / Signing:** Windows 没有发布者签名；macOS 采用 ad-hoc 签名，没有 Apple Developer ID 或公证，首次运行可能被系统提示或拦截。Windows has no publisher signature; macOS is ad-hoc signed without Developer ID or notarization, so the OS may warn or block first launch.
 
-[SHA-256 校验值 / Checksums](https://github.com/Hbw1201/research-niuma/releases/download/v0.6.0/SHA256SUMS.txt) · [构建与包内文件记录 / Build manifest](https://github.com/Hbw1201/research-niuma/releases/download/v0.6.0/BUILD-INFO.json)
+[SHA-256 校验值 / Checksums](https://github.com/Hbw1201/research-niuma/releases/download/v0.7.0/SHA256SUMS.txt) · [构建与包内文件记录 / Build manifest](https://github.com/Hbw1201/research-niuma/releases/download/v0.7.0/BUILD-INFO.json)
 
 发布包仅从公开源码在干净的 GitHub 托管环境构建，不包含开发者的密钥、CLI 登录信息、课题数据或历史记录。Release packages are built from public source on clean GitHub-hosted runners, without developer credentials, CLI login, research data, or local history.
 
@@ -43,11 +43,12 @@ Desktop packages include their runtime. Install and authenticate Claude Code and
 
 ### 能做什么
 
-- **主页对话：** 在主页直接与本机 Claude Code 对话，查看流式回复，停止生成或恢复先前从主页创建的对话。这里的聊天独立于课题。
-- **实验区：** 从主页进入实验区，按课题查看协作、研究流程、团队和文件。在课题各页都可以打开 CC 对话框，询问当前进展或补充研究要求。
+- **独立对话与项目对话：** 主页左侧分为独立对话和项目；项目绑定本地文件夹，可在根目录或子文件夹开启多段 Claude Code 对话，支持流式回复、停止生成和续聊。项目对话沿用课题规则、技能与模型，并计入课题用量。
+- **共享实验区：** 聊天和实验区使用同一个项目、同一份目录与文件。两边都能浏览文件、新建子文件夹和预览文本；项目对话另存为 Markdown，可在实验区交接文档中查看。汉堡菜单支持桌面收起侧栏及移动端抽屉。
 - **课题技能：** 在「研究团队 → 共用技能」勾选技能，按中文名称、用途或英文标识搜索。译名仅用于显示，不改变实际加载的技能或课题已有的选择。
 - **从 idea 开始：** 新建页面先填写标题、选择本地文件夹，再与 CC 讨论。CC 追问、澄清目标，提出方向和研究计划，由研究者确认。
-- **先讨论再执行：** CC 可以组织创新、方法、实验、质疑四个视角的讨论，生成决策问卷。研究者逐项批阅后，才将获批范围交给 CX。
+- **主导师 + 三位 CC 评委：** 主 CC 先澄清问题并起草 proposal；三位额外 CC 使用独立会话审查研究价值、方法证据和可行性，再交叉回应彼此的意见。主导师逐条回应、修订提案，研究者确认后生成决策问卷，再交给 CX 执行。每位评委的意见、会话日志和 Token 用量都可查看，Markdown 保存初稿、评审、互评与修订记录。暂停后可补齐未完成步骤；新要求会使旧评审失效。旧课题尚无实验任务时，可手动提交现有提案进入评委会，原方案和问卷先归档。
+- **实验与论文持续送审：** 正式实验/分析回报齐备、论文初稿回报齐备时，自动召集三位 CC 独立评审并互评。主 CC 将问题关联到具体 CX 修改任务，修改回报后重新送审；主要问题不能被直接略过。实验结果评审通过后才派发写作任务，论文修改后需再次评审。Pipeline 展示材料版本、各评委意见、主导师决策、CX 修改及复审的完整连线；每轮日志、Markdown 和 Token 均保留。暂停、失败或复核上限会保留进度，继续时补齐剩余工作。
 - **持续反馈：** CX 回报结果或阻塞，CC 复核证据并安排下一步、返工、替代方案、交叉验证，或请求研究者判断。用户可在协作过程中补充观察和提问。
 - **可展开的 Pipeline：** 查看真实任务、依赖、反馈与分支，点击节点查看理由、证据和交接文档；保留失败尝试与阴性结果。
 - **CC Leader / Auto Research：** 新课题默认由 CC 自主组织团队。你确认目标和首轮问卷后，CC 决定 CX 数量、职责、模型、语言与技能；每次回报后重新评估配置，必要时扩缩编、改派或取消过时待办，待办清空后检查全项目目标并自动推进后续实验、分析或写作。
@@ -59,16 +60,22 @@ Desktop packages include their runtime. Install and authenticate Claude Code and
 
 ```mermaid
 flowchart TD
-  Q[研究问题与文献缺口] --> D[假设与研究设计]
-  D --> H[研究者批阅 CC 决策问卷]
-  H --> P[数据准备与最小验证]
-  P --> X[CX 执行一个可检查的小步骤]
-  X --> C{CC 复核结果和证据}
-  C -->|推进 / 返工 / 替代 / 验证| X
-  C -->|需要研究判断| H
-  C -->|本轮证据齐备| A[研究者审阅分析与结论]
-  A --> W[写作、交流与复现归档]
-  A -->|证据不足或新问题| D
+  Q[研究问题与文献缺口] --> D[主 CC 起草 proposal]
+  D --> C[三位 CC 独立评审与交叉互评]
+  C --> R[主 CC 回应意见并修订提案]
+  R --> H[研究者确认提案与决策问卷]
+  H --> P[数据准备、最小验证与基线]
+  P --> X[CX 执行实验与分析]
+  X --> F[主 CC 初步复核回报]
+  F --> E{三位 CC 评审结果与证据}
+  E -->|发现问题| A[主 CC 安排 CX 修改]
+  A --> X
+  E -->|通过| W[CX 起草论文]
+  W --> M{三位 CC 评审论文初稿}
+  M -->|写作问题| V[主 CC 安排 CX 修改论文]
+  V --> W
+  M -->|需要补实验| A
+  M -->|通过| U[研究者最终判断、交流与复现归档]
 ```
 
 应用将研究组织为八个可往返阶段：**研究问题 → 文献与缺口 → 假设与设计 → 数据准备 → 最小验证与基线 → 正式实验与迭代 → 分析与结论复核 → 写作、交流与归档**。这是面向实证和计算研究的工作框架，不是所有学科的固定顺序。
@@ -113,7 +120,7 @@ node bin/relay-lab.mjs status --workspace /absolute/path/to/research
 
 ```sh
 npm pack
-npm install -g ./relay-lab-0.6.0.tgz
+npm install -g ./relay-lab-0.7.0.tgz
 relay-lab start --workspace /absolute/path/to/research
 ```
 
@@ -153,11 +160,12 @@ It makes the research process inspectable: what each agent is doing, what eviden
 
 ### Features
 
-- **Chat home:** talk directly to your local Claude Code CLI, stream replies, stop generation, or resume a conversation started from the home page. These chats are separate from project instructions.
-- **Experiments:** open a project to inspect its collaboration, pipeline, team, and files. The project chat is available across views for questions and changes to research requirements.
+- **Independent and project chats:** the home sidebar separates independent conversations from local-folder projects. Start multiple Claude Code conversations in a project root or subdirectory, stream replies, stop generation, and resume. Project chats use project rules, skills, and model settings and count toward project usage.
+- **Shared experiments workspace:** chat and Experiments use the same project and files. Browse directories, create subfolders, and preview text in either view. Project conversations are also saved as Markdown handoffs. The hamburger button collapses the desktop sidebar and opens a drawer on narrow screens.
 - **Project skills:** select shared skills in Team, and search by Chinese name, purpose, or original identifier. Display translations do not change the skill that runs or any saved selections.
 - **Idea clarification:** choose a title and local folder, discuss the idea with CC, and confirm the proposed direction and research plan.
-- **Human decisions before execution:** CC can discuss novelty, methods, experiments, and criticism through four perspectives, then draft a questionnaire for the researcher to review.
+- **Lead mentor + three CC reviewers:** The lead drafts a proposal. Three additional Claude Code sessions independently review research value, methodological evidence, and feasibility, then respond to each other's findings. The lead revises the proposal with an explicit disposition for every issue. Human confirmation precedes the decision questionnaire and CX execution. Review text, logs, per-reviewer tokens, and Markdown versions remain inspectable. Interrupted rounds resume unfinished steps; changed requirements require a fresh round. Existing projects without experiment tasks can submit their proposal for review while archiving the earlier plan and questionnaire.
+- **Continuous results and manuscript review:** Completed experiment/analysis reports and manuscript drafts automatically enter three-reviewer assessment and cross-review. The lead maps findings to concrete CX correction tasks and resubmits the resulting reports. Major issues cannot be dismissed. Writing waits for results review, and revised manuscripts undergo another review. Pipeline connects evidence versions, individual reviews, lead decisions, corrections, and subsequent rounds; Markdown, logs, and tokens remain available. Interrupted or budget-paused rounds resume unfinished work.
 - **Continuous feedback:** a CX returns evidence or a blocker; CC reviews it and proposes the next step, a revision, an alternative, independent verification, or a human decision. The researcher can send observations and questions throughout.
 - **Inspectable Pipeline:** actual task and review nodes retain dependencies, decisions, failed attempts, and Markdown handoffs. Click a node to inspect the evidence.
 - **Auto Research:** new projects default to a CC Leader that chooses the team size, responsibilities, models, language, and Skills after initial scope approval. It reassesses the team after results, archives idle workers without losing history, revises queued assignments and priorities, cancels obsolete work, and checks the overall goal before moving into further experiments, analysis, or writing.

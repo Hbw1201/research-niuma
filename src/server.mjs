@@ -1,4 +1,5 @@
 import { HomeChat } from './home-chat.mjs';
+import { ProjectFiles } from './project-files.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -19,6 +20,11 @@ Object.assign(assets,{'/':'home.html','/index.html':'home.html','/experiments/':
 assets['/control-chat.js'] = 'control-chat.js';
 assets['/workspace-ui.js'] = 'workspace-ui.js';
 assets['/workbench.css'] = 'workbench.css';
+assets['/project-files.js'] = 'project-files.js';
+assets['/project-files.css'] = 'project-files.css';
+assets['/proposal-review-ui.js'] = 'proposal-review-ui.js';
+assets['/stage-council-ui.js'] = 'stage-council-ui.js';
+assets['/proposal-review.css'] = 'proposal-review.css';
 
 export async function startServer({ workspace = process.cwd(), port = 4318, scanner = discover } = {}) {
   let store = new Store(workspace), runner = new Runner(store);
@@ -45,7 +51,11 @@ export async function startServer({ workspace = process.cwd(), port = 4318, scan
       assert(req.headers.host === new URL(origin).host, '不接受此 Host。',403);
       const url = new URL(req.url,origin), route=url.pathname;
       if(req.method==='GET') {
-        if(route==='/api/home-chat') return json(res,200,{...home.snapshot(url.searchParams.get('chat')),token});
+        if(route==='/api/home-chat') return json(res,200,{...home.snapshot(url.searchParams.get('chat'),url.searchParams.get('project')),token});
+        if(route==='/api/project-files'){
+          const files=new ProjectFiles(store),args=[url.searchParams.get('project'),url.searchParams.get('path')||'',url.searchParams.get('area')||'project'];
+          return json(res,200,url.searchParams.has('file')?files.read(...args):files.list(...args));
+        }
         if(route==='/api/state') return json(res,200,snapshot());
         if(route==='/api/health') return json(res,200,{ok:true,version});
         if(route==='/api/rules')return json(res,200,store.rules(url.searchParams.get('project')||undefined));
@@ -73,6 +83,16 @@ export async function startServer({ workspace = process.cwd(), port = 4318, scan
       assert(String(req.headers['content-type']||'').startsWith('application/json'),'需要 JSON 请求。',415);
       const body=await readBody(req);
       if(route==='/api/home-chat/send')return json(res,202,home.send(body));
+      if(route==='/api/project-folders'){const folder=new ProjectFiles(store).mkdir(body);broadcast();return json(res,201,folder);}
+      if(route==='/api/home-projects'){
+        assert(body.workspace===store.workspace,'工作区已切换，请刷新后再创建。',409);
+        assert(typeof body.directory==='string'&&path.isAbsolute(body.directory),'请选择本地项目文件夹。');
+        const directory=path.resolve(body.directory);
+        const canonical=p=>{try{return fs.realpathSync(p);}catch{return path.resolve(p);}};
+        const existing=store.state.projects.find(p=>canonical(p.directory)===canonical(directory));
+        if(existing)return json(res,200,{project:existing,existing:true});
+        const p=store.newProject({title:body.title,directory});broadcast();return json(res,201,{project:p,existing:false});
+      }
       if(route==='/api/workspace') {
         assert(!home.pending.size&&!runner.children.size&&!workflow.busy.size&&!workflow.pumps.size&&!workflow.steering.active.size&&!workflow.collaboration.active.size,'请先停止当前工作区的所有任务。',409);
         assert(typeof body.path==='string'&&path.isAbsolute(body.path)&&body.path.length<4096,'请提供工作区的绝对路径。');
@@ -98,7 +118,7 @@ export async function startServer({ workspace = process.cwd(), port = 4318, scan
         store.state.settings={ccPath:body.ccPath.trim(),cxPath:body.cxPath.trim(),concurrency:body.concurrency};store.save();await refresh();broadcast();return json(res,200,{ok:true});
       }
       if(route==='/api/projects') {const p=store.newProject(body);broadcast();return json(res,201,p);}
-      const action=route.match(/^\/api\/projects\/([a-f0-9-]+)\/(brainstorm|review|plan|execute|stop|summarize|bind-cc|handoff|chat|activate|architecture|skills|models|team-chat|accept-team|collaborate|message|decide|stage-review|autonomy|control-chat)$/);
+      const action=route.match(/^\/api\/projects\/([a-f0-9-]+)\/(brainstorm|review|plan|execute|stop|summarize|bind-cc|handoff|chat|activate|proposal-review|architecture|skills|models|team-chat|accept-team|collaborate|message|decide|stage-review|autonomy|control-chat)$/);
       if(action) {
         const [,id,verb]=action;store.project(id);
         if(verb==='control-chat'){const turn=workflow.steering.submit(id,body);return json(res,202,{id:turn.id,status:turn.status});}
@@ -114,6 +134,7 @@ export async function startServer({ workspace = process.cwd(), port = 4318, scan
         if(verb==='bind-cc')workflow.bindCC(id,body.sessionId);
         if(verb==='handoff')await workflow.handoff(id,body.sessionId,body.documentId);
         if(verb==='chat')workflow.chat(id,body.message);
+        if(verb==='proposal-review')workflow.reviewProposal(id);
         if(verb==='activate')workflow.activate(id);
         if(verb==='architecture')workflow.configure(id,body);
         if(verb==='autonomy')workflow.configureAutonomy(id,body);
@@ -134,5 +155,5 @@ export async function startServer({ workspace = process.cwd(), port = 4318, scan
   fs.writeFileSync(connection,JSON.stringify({url:origin,pid:process.pid}),{mode:0o600});
   const heartbeat=setInterval(()=>{for(const res of clients)res.write(': heartbeat\n\n');},20000);heartbeat.unref();
   refresh().catch(e=>{scan={clis:{},sessions:[],processes:[],warnings:[e.message]};broadcast();});
-  return {url:origin,get store(){return store;},get runner(){return runner;},get workflow(){return workflow;},refresh,snapshot,async close(){if(closing)return;closing=true;clearInterval(heartbeat);clearTimeout(broadcastTimer);for(const p of store.state.projects)workflow.steering.stop(p.id);await runner.close();await Promise.allSettled([...home.pending.values(),...workflow.steering.active.values(),...[...workflow.collaboration.active.values()].map(t=>t.promise)]);for(const res of clients)res.end();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));store.close();try{fs.unlinkSync(connection);}catch{}}};
+  return {url:origin,get store(){return store;},get runner(){return runner;},get workflow(){return workflow;},refresh,snapshot,async close(){if(closing)return;closing=true;clearInterval(heartbeat);clearTimeout(broadcastTimer);for(const p of store.state.projects)workflow.steering.stop(p.id);for(const t of workflow.operations.values())t.cancelled=true;for(const t of workflow.collaboration.active.values())t.cancelled=true;await runner.close();await Promise.allSettled([...home.pending.values(),...[...workflow.operations.values()].map(t=>t.promise),...workflow.steering.active.values(),...[...workflow.collaboration.active.values()].map(t=>t.promise)]);for(const res of clients)res.end();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));store.close();try{fs.unlinkSync(connection);}catch{}}};
 }

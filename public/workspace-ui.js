@@ -1,5 +1,5 @@
 const tabs = [
-  ['collaboration', '协作台'], ['pipeline', 'Pipeline'], ['architecture', '团队'], ['documents', '文件'],
+  ['collaboration', '协作台'], ['pipeline', 'Pipeline'], ['architecture', '团队'], ['files', '文件'],
 ];
 const globalViews = new Set(['overview', 'new', 'settings', 'sessions']);
 
@@ -7,7 +7,7 @@ export function phaseOf(p) {
   const decisions = p.questions || [];
   const accepted = decisions.length > 0 && decisions.every(q => ['approved', 'rejected'].includes(q.decision))
     && decisions.some(q => q.decision === 'approved');
-  if (!p.intakeConfirmed) return { step: 0, hint: p.proposal ? '确认 CC 提出的研究方向' : '与 CC 明确研究问题', attention: Boolean(p.proposal) };
+  if (!p.intakeConfirmed) {const r=p.proposalReviews?.at(-1);return { step: 0, hint:p.status==='proposal_reviewing'?({independent:'三位 CC 评委独立审查提案',cross:'三位评委正在交叉互评',synthesis:'主导师正在回应意见并修订提案'}[r?.stage]||'评委会评审中'):r?.status==='completed'?'查看评委意见，确认修订提案':p.proposal?'提交 / 继续提案评委会评审':'与主导师明确研究问题', attention:Boolean(p.proposal)&&p.status!=='proposal_reviewing'};}
   if (!accepted && !p.tasks?.length) {
     if (p.status === 'brainstorming') return { step: 1, hint: 'CC 正在准备研究问卷' };
     if (!decisions.length) return { step: 1, hint: '请 CC 生成研究设计问卷', attention:['failed','interrupted'].includes(p.status) };
@@ -25,7 +25,7 @@ export function projectHeader(c, view) {
   if (globalViews.has(view) || !c.p) return '';
   const {p,esc,badge} = c;
   const section = ['architecture','session','skills'].includes(view) ? 'architecture' :
-    ['pipeline','progress'].includes(view) ? 'pipeline' : view === 'documents' ? view : 'collaboration';
+    ['pipeline','progress'].includes(view) ? 'pipeline' : ['documents','files'].includes(view) ? 'files' : 'collaboration';
   const labels = ['明确问题','确认方案','实验与复核','审阅结论'];
   const phase = phaseOf(p);
   return `<header class="project-heading"><div class="kicker">PROJECT / 研究课题</div>
@@ -46,7 +46,7 @@ export function frame(c, {view, content, connected, drawer}) {
   const ready = key => !state.scan ? '检测中' : state.scan.clis?.[key]?.available ? '就绪' : '未就绪';
   return `<header class="app-bar">
       <button type="button" class="drawer-toggle" data-action="toggle-drawer" aria-label="${drawer?'关闭课题列表':'打开课题列表'}" aria-controls="project-rail" aria-expanded="${drawer}">☰</button>
-      <a href="/" class="wordmark" aria-label="返回主页"><b aria-hidden="true">&gt;_</b> 主页</a>
+      <a href="${p&&!globalViews.has(view)?'/#space='+encodeURIComponent(p.id):'/'}" class="wordmark" aria-label="返回主页"><b aria-hidden="true">&gt;_</b> 项目对话</a>
       <span class="bar-divider"></span><strong class="lab-heading">实验区</strong>
       ${p&&!globalViews.has(view)?'<button id="control-launch" data-action="control-chat" type="button" aria-controls="control-chat" aria-expanded="false">CC 总控对话</button>':''}
       <span class="link-status ${connected?'online':'offline'}" role="status">${connected?'已连接':'正在重连'}</span>

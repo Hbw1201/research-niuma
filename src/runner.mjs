@@ -52,28 +52,29 @@ export function decodeEvent(provider, x) {
 export class Runner extends EventEmitter {
   constructor(store) { super(); this.store = store; this.children = new Map(); this.closing = false; }
   changed() { this.store.save(); this.emit('change'); }
-  async run({ projectId, provider, kind, title, executable, cwd, prompt, sessionId, schema, agents, args, workerId='', taskId='', model, language, skillIds, controlTurnId }) {
+  async run({ id, chatId, projectId, provider, kind, title, executable, cwd, prompt, sessionId, schema, agents, args, workerId='', taskId='', model, language, skillIds, controlTurnId, reviewerId, reviewRoundId }) {
     assert(!this.closing, '服务正在退出。', 409);
     const project=this.store.project(projectId);
     const worker=project.architecture.workers.find(w=>w.id===workerId);
     model ??= provider==='cc'?project.mentor.model:worker?.model||'';
     language ||= worker?.language||project.mentor.language||'简体中文';
+    prompt=`项目共享目录：${project.directory}\n实验区记录与产物目录：${this.store.folder(projectId)}\n本次执行目录：${cwd}\n可从项目共享目录及子文件夹读取相关资料；各 CX 的产物仍写在各自获派的工作目录，遵循本次任务的写入范围。\n\n`+(prompt||'');
     const selected=kind==='handoff'?[]:loadSelectedSkills({skillIds:[...new Set([...(project.skillIds||[]),...(skillIds||worker?.skillIds||[])])]},scanSkills(this.store.workspace,[...(this.store.state.settings.skillRoots||[]),...['.claude','.codex','.agents'].map(dir=>path.join(project.directory,dir,'skills'))]));
     prompt=`输出语言：${language}。面向研究者的解释、进展与最终报告使用此语言；保留必要的代码、路径和模型标识。\n\n`+(prompt||'');
     if(kind!=='handoff') prompt=`# 本次工作区与课题规则\n\n${this.store.rulesText(projectId)}\n\n# 本课题显式选择的 Skills\n\n${selected.length?selected.map(s=>`## ${s.name}\n来源：${s.path}\n相对资源请基于 ${s.directory} 解析。\n\n${s.content}`).join('\n\n'):'研究者未显式选择附加 Skill。'}\n\n以本课题选择的技能为优先，不要擅自扩展研究任务或修改全局技能配置。\n\n# 当前任务\n\n${prompt}`;
     prompt+=`\n\n本次输出语言设置：${language}。请据此撰写面向研究者的说明和报告，模型标识与 JSON 字段名保持不变。`;
     const steeringRevision=kind==='handoff'?0:(project.steering?.revision||0);
     if(steeringRevision)prompt+='\n\n# 研究者更新的课题要求（按发出顺序，后发要求修订冲突项）\n'+activeRequirements(project)+'\n在既有权限与已确认研究范围内应用。若与获批决策冲突或需新授权，向研究者说明，不擅自执行。';
-    return this.execute({projectId,provider,kind,title,executable,cwd,prompt,sessionId,schema,agents,args,workerId,taskId,model,language,controlTurnId,steeringRevision,
+    return this.execute({id,chatId,projectId,provider,kind,title,executable,cwd,prompt,sessionId,schema,agents,args,workerId,taskId,model,language,controlTurnId,steeringRevision,reviewerId,reviewRoundId,
       skills:selected.map(({id,name,path,hash})=>({id,name,path,hash})),directory:this.store.folder(projectId)});
   }
 
-  async execute({id=uid(),directory,projectId,chatId,provider,kind,title,executable,cwd,prompt,sessionId,schema,agents,args,workerId='',taskId='',model,language,controlTurnId,steeringRevision=0,skills=[]}) {
+  async execute({id=uid(),directory,projectId,chatId,provider,kind,title,executable,cwd,prompt,sessionId,schema,agents,args,workerId='',taskId='',model,language,controlTurnId,steeringRevision=0,skills=[],reviewerId,reviewRoundId}) {
     assert(!this.closing,'服务正在退出。',409);
     const homeChat=kind==='home-chat';
     const baseline=this.store.state.jobs.find(j=>j.provider==='cc'&&j.sessionId===sessionId&&j.sessionModelUsage)?.sessionModelUsage||null;
     const usage=usageTracker(provider,{baseline,continued:!!sessionId});
-    const job = { id, projectId, chatId, provider, kind, title, workerId, taskId, model, language, controlTurnId, steeringRevision, usageVersion:2, usage:null, status: 'running', startedAt: now(), cwd, requestedSessionId:sessionId||'', sessionId: sessionId || '', skills, log: [], output: '', error: '' };
+    const job = { id, projectId, chatId, provider, kind, title, workerId, taskId, model, language, controlTurnId, steeringRevision, reviewerId, reviewRoundId, usageVersion:2, usage:null, status: 'running', startedAt: now(), cwd, requestedSessionId:sessionId||'', sessionId: sessionId || '', skills, log: [], output: '', error: '' };
     this.store.state.jobs.unshift(job);
     const jobDir = path.join(directory, 'runs', job.id);
     fs.mkdirSync(jobDir, { recursive: true });

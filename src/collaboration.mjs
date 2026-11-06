@@ -35,11 +35,17 @@ export class Collaboration {
   write(p){this.store.doc(p.id,'60-collaboration.md','CC 与 CX 持续协作记录',`# ${p.title}：协作记录\n\n`+p.collaboration.messages.map(m=>`## ${m.from} → ${m.to} · ${m.at}\n\n${m.content}`).join('\n\n'),'conversation');}
   addTasks(p,review){
     const created=[];
-    for(const next of review.nextTasks){
+    for(const [position,next] of review.nextTasks.entries()){
+      const councilTaskKey=review.councilRoundId?`${review.id}-${position}`:'';
+      const existing=councilTaskKey&&p.tasks.find(t=>t.councilTaskKey===councilTaskKey);
+      if(existing){created.push(existing.id);continue;}
       const t={...next,id:uid(),index:Math.max(0,...p.tasks.map(t=>t.index))+1,status:'ready',sessionId:'',error:'',priority:['retry','alternative'].includes(next.relation)?Math.min(1000,(p.tasks.find(t=>t.id===review.taskId)?.priority||0)+1):0,parentReviewId:review.id,dependsOn:[...new Set([review.taskId,...next.dependsOn])],createdAt:now()};
       const w=p.architecture.workers.find(w=>w.id===t.workerId);
+      if(review.councilRoundId){t.councilTaskKey=councilTaskKey;t.councilRoundId=review.councilRoundId;t.councilScopes=[review.councilKind];}
+      else if(next.relation!=='next'){const parent=p.tasks.find(x=>x.id===review.taskId);t.councilScopes=this.flow.stageCouncil.scopes(parent);t.councilRoundId=parent?.councilRoundId||'';}
+      if(review.councilRoundId)t.instructions+=`\n\n这是评委会第 ${p.stageReviews.find(r=>r.id===review.councilRoundId)?.number||'?'} 轮修改。对应意见：${next.issueIds.join(', ')}。完整评审与主导师修改计划：${this.store.readDoc(p.id,review.documentId).path}。逐条提供修改位置、实际验证与证据；回报后将由三位评委复审。`;
       const d=this.store.doc(p.id,`30-task-${t.index}.md`,`${w.name} / T${t.index} · ${t.title}`,`# ${t.title}\n\n科研阶段：${t.researchStage}\n分支：${t.relation}\n批准依据：${t.questionIds.join(', ')}\n\n## CC 的判断\n${review.reason}\n\n## 执行要求\n${t.instructions}\n\n## 验收标准\n${t.acceptance}\n\n## 共享交接\n${review.handoff}\n\n只修改本 CX 工作目录；其它 CX 的产物只读。缺少材料时报告阻塞，不伪造结果。`,'task');
-      t.documentId=d.id;p.tasks.push(t);created.push(t.id);
+      t.documentId=d.id;p.tasks.push(t);created.push(t.id);review.createdTaskIds=[...created];
       this.message(p,'CC',w.name,`T${t.index} · ${t.title}\n${t.instructions}`,{taskId:t.id,documentId:d.id,kind:'dispatch'});
     }
     review.createdTaskIds=created;this.runner.changed();return created;
@@ -83,11 +89,22 @@ export class Collaboration {
           const previous=p.tasks.filter(t=>selected(t)&&t.reportId).at(-1);if(previous){previous.reviewId='';waiting=previous;}
         }
         const atLimit=c.reviewsUsed>=c.maxReviews&&Boolean(waiting||running.size||p.tasks.some(ready));
+        if(!taskId&&!waiting&&!running.size&&!c.pendingDecision){
+          const next=this.flow.stageCouncil.next(p);
+          if(next){
+            if(next.blocked){c.state='paused';c.pauseReason=next.blocked;p.status='paused';break;}
+            try{await this.flow.stageCouncil.run(p,next.kind,token);checkpointDone=false;}
+            catch(e){if(e.reviewStale)continue;if(e.reviewPause){c.state='paused';c.pauseReason=e.message;p.status='paused';break;}throw e;}
+            continue;
+          }
+        }
         if(!c.pendingDecision&&!atLimit&&!waiting){
           const limit=Math.min(this.store.state.settings.concurrency,p.architecture.parallel,isAuto(p)?p.autonomy.maxParallel:Infinity);
           for(const t of p.tasks.filter(ready).sort((a,b)=>(b.priority||0)-(a.priority||0))){
+            if(!this.flow.stageCouncil.canRun(p,t))continue;
             if(running.size>=limit||this.runningCX>=this.store.state.settings.concurrency)break;
             if([...running.values()].some(x=>x.workerId===t.workerId))continue;
+            if(t.researchStage==='writing'){const approved=p.stageReviews.filter(r=>r.kind==='results'&&r.status==='approved').at(-1);if(approved)t.councilApprovalIds=[approved.leadReviewId];}
             t.status='queued';this.runningCX++;
             const entry={workerId:t.workerId,promise:null};running.set(t.id,entry);
             entry.promise=this.runTask(p,t,token).finally(()=>{running.delete(t.id);this.runningCX--;this.runner.changed();});
@@ -99,7 +116,7 @@ export class Collaboration {
           c.state=c.pendingDecision?'waiting_user':'paused';c.pauseReason=c.pendingDecision?.question||`已完成 ${c.maxReviews} 次自动复核。可检查证据后继续下一轮。`;p.status=c.pendingDecision?'awaiting_decision':'paused';break;
         }
         if(!running.size&&!p.tasks.some(needsReview)){
-          if(p.tasks.some(ready)){await new Promise(r=>setTimeout(r,40));continue;}
+          if(p.tasks.some(ready)){if(!p.tasks.some(t=>ready(t)&&this.flow.stageCouncil.canRun(p,t))){c.state='paused';c.pauseReason='写作任务等待实验结果评委会通过；请先完成实验与分析的待办。';p.status='paused';break;}await new Promise(r=>setTimeout(r,40));continue;}
           const blocked=p.tasks.filter(t=>selected(t)&&!terminal(t));
           if(isAuto(p)&&!taskId&&!blocked.length&&!checkpointDone){
             if(c.reviewsUsed>=c.maxReviews){c.state='paused';c.pauseReason=`已达到本轮 ${c.maxReviews} 次复核上限，研究进度已保存。`;p.status='paused';break;}
@@ -167,6 +184,7 @@ export class Collaboration {
   decide(id,input){
     const p=this.store.project(id);this.flow.idle(id);const c=p.collaboration,pending=c.pendingDecision;
     assert(pending&&pending.id===input.decisionId,'待确认问题已变化，请刷新。',409);assert(['approve','revise'].includes(input.action),'请选择确认或要求调整。');
+    if(pending.councilRoundId){this.flow.stageCouncil.decide(p,pending,input);return this.start(id,{maxReviews:c.maxReviews});}
     const content=text(input.message,20000),review=c.reviews.find(r=>r.id===pending.reviewId);
     this.message(p,'研究者','CC',content,{kind:'decision',decisionId:pending.id,action:input.action});
     if(input.action==='approve'&&review.nextTasks.length){validateFeedback(p,review);this.addTasks(p,review);}
