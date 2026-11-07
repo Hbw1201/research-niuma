@@ -1,5 +1,8 @@
+import {BenchmarkResearch} from './benchmark-research.mjs';
+import {executionScope,scopeContext} from './execution-scope.mjs';
 import {Steering} from './steering.mjs';
 import {ProposalCouncil,reviewReady,proposalText} from './proposal-review.mjs';
+import {MentorMeetings} from './mentor-meetings.mjs';
 import {StageCouncil} from './stage-council.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,20 +15,9 @@ import {Leadership,isAuto,activeWorkers,availableModels,validateAutonomy} from '
 import {modelCatalog} from './models.mjs';
 import {researchStages,stageIds} from '../public/research-stages.js';
 
-export const roles = [
-  { key: 'novelty', title: '创新与定位', prompt: '检查研究问题、新颖性、已有工作与研究缺口。不得捏造文献或把未核实来源写成事实。' },
-  { key: 'methods', title: '方法与实现', prompt: '提出可实现的方法、技术路线、必要资源与最小原型。明确假设和依赖。' },
-  { key: 'experiments', title: '实验与验证', prompt: '设计基线、数据划分、评价指标、消融与可复现实验。不编造实验结果。' },
-  { key: 'skeptic', title: '质疑与风险', prompt: '主动寻找失败条件、替代解释、证据缺口与最可能被审稿人否定的环节。' }
-];
 const str = { type: 'string' };
-export const brainstormSchema = { type: 'object', additionalProperties: false, required: ['summary','perspectives','questions'], properties: {
-  summary: str,
-  perspectives: { type: 'array', minItems: 4, maxItems: 4, items: { type: 'object', additionalProperties: false, required: ['role','analysis'], properties: { role: { type:'string', enum: roles.map(r=>r.key) }, analysis: str } } },
-  questions: { type: 'array', minItems: 1, maxItems: 12, items: { type: 'object', additionalProperties: false, required: ['title','why','options','recommendation'], properties: { title: str, why: str, options: { type:'array', minItems:2, maxItems:5, items:str }, recommendation: str } } }
-} };
-export const planSchema = { type: 'object', additionalProperties: false, required: ['summary','tasks'], properties: {
-  summary: str, tasks: { type: 'array', minItems:1, maxItems:8, items: { type:'object', additionalProperties:false, required:['title','instructions','acceptance','questionIds','workerId','researchStage'], properties:{title:str,instructions:str,acceptance:str,workerId:str,researchStage:{type:'string',enum:stageIds},questionIds:{type:'array', minItems:1, items:str}} } }
+export const planSchema = { type: 'object', additionalProperties: false, required: ['summary','rationale','tasks'], properties: {
+  summary: str, rationale: str, tasks: { type: 'array', minItems:1, maxItems:8, items: { type:'object', additionalProperties:false, required:['title','instructions','acceptance','questionIds','workerId','researchStage'], properties:{title:str,instructions:str,acceptance:str,workerId:str,researchStage:{type:'string',enum:stageIds},questionIds:{type:'array', minItems:1, items:str}} } }
 } };
 export const intakeSchema={type:'object',additionalProperties:false,required:['message','phase','direction','ideas','researchTopic','pipeline','proposal'],properties:{message:str,phase:{type:'string',enum:['clarifying','proposal']},direction:str,proposal:str,ideas:{type:'array',items:str},researchTopic:str,pipeline:{type:'array',items:{type:'object',additionalProperties:false,required:['title','description'],properties:{title:str,description:str}}}}};
 
@@ -34,26 +26,22 @@ function structured(result) {
   const cleaned = result.text.trim().replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
   try { return JSON.parse(cleaned); } catch { throw new Error('CC 未返回有效结构化结果。原始输出已保留在运行记录中，可以重试。'); }
 }
-export function validateBrainstorm(data) {
-  assert(data && typeof data.summary === 'string' && Array.isArray(data.perspectives) && data.perspectives.length === 4, 'CC 的讨论结果缺少四个视角。');
-  assert(new Set(data.perspectives.map(p => p.role)).size === 4 && data.perspectives.every(p => roles.some(r => r.key === p.role) && typeof p.analysis === 'string' && p.analysis.trim()), 'CC 返回的讨论视角不完整。');
-  return validateQuestionnaire(data);
-}
-function validateQuestionnaire(data) {
-  text(data?.summary);assert(Array.isArray(data.questions) && data.questions.length > 0 && data.questions.length <= 12, 'CC 问卷格式错误。');
-  for (const q of data.questions) { text(q.title, 2000); text(q.why); text(q.recommendation); assert(Array.isArray(q.options) && q.options.length >= 2 && q.options.length <= 5 && q.options.every(x => typeof x === 'string' && x.trim() && x.length <= 2000), '问卷选项格式错误。'); }
-  return data;
-}
-export function validatePlan(data, questions, workers) {
-  assert(data && Array.isArray(data.tasks) && data.tasks.length > 0 && data.tasks.length <= 8, 'CC 任务计划为空或格式错误。');
-  const approved = new Set(questions.filter(q=>q.decision === 'approved').map(q=>q.id));
-  for (const t of data.tasks) { text(t.title, 300); text(t.instructions, 30000); text(t.acceptance); assert(Array.isArray(t.questionIds) && t.questionIds.length && t.questionIds.every(id=>approved.has(id)), '计划包含未经你批准的问题，已阻止下发。');if(workers)assert(workers.some(w=>w.id===t.workerId),'CC 分配了不在本课题架构中的 CX。'); }
-  for (const id of approved) assert(data.tasks.some(t => t.questionIds.includes(id)), '计划遗漏已批准的问题，已阻止下发。');
+export function validatePlan(data, project, workers) {
+  text(data?.summary);text(data?.rationale,20000);
+  assert(Array.isArray(data.tasks) && data.tasks.length > 0 && data.tasks.length <= 8, 'CC 任务计划为空或格式错误。');
+  const scope = new Set(executionScope(project).map(q=>q.id));
+  for (const t of data.tasks) {
+    text(t.title,300);text(t.instructions,30000);text(t.acceptance);
+    assert(Array.isArray(t.questionIds)&&t.questionIds.length&&t.questionIds.every(id=>scope.has(id)), '任务引用了未知或已否决的研究目标。');
+    assert(stageIds.includes(t.researchStage),'任务的科研阶段无效。');
+    if(workers)assert(workers.some(w=>w.id===t.workerId),'CC 分配了不在本课题架构中的 CX。');
+  }
   return data;
 }
 
 export class Workflow {
-  constructor(store, runner, getScan) { this.store = store; this.runner = runner; this.getScan = getScan; this.busy = new Set(); this.pumps = new Map(); this.modelSelections=new Map();this.operations=new Map();this.council=new ProposalCouncil(this);this.stageCouncil=new StageCouncil(this);this.models=modelCatalog;this.collaboration=new Collaboration(this);this.leadership=new Leadership(this);this.steering=new Steering(this); }
+  constructor(store, runner, getScan) { this.store = store; this.runner = runner; this.getScan = getScan; this.busy = new Set(); this.pumps = new Map(); this.modelSelections=new Map();this.operations=new Map();this.council=new ProposalCouncil(this);this.stageCouncil=new StageCouncil(this);this.benchmark=new BenchmarkResearch(this);this.meetings=new MentorMeetings(this);this.models=modelCatalog;this.collaboration=new Collaboration(this);this.leadership=new Leadership(this);this.steering=new Steering(this); }
+  prepareBenchmark(id){const p=this.store.project(id);this.idle(id);this.cli('cc');assert(p.intakeConfirmed,'请先确认研究方向。',409);p.benchmarkResearch.revision++;p.collaboration.reviewsUsed=0;return this.launch(id,'researching',async token=>{if(await this.benchmark.ensure(p,token)){p.status=p.tasks.length?'ready':'draft';p.collaboration.state='paused';p.collaboration.pauseReason='文献与评测方案已更新，继续研究后按新版本检查已有结果并安排下一步。';}});}
   cli(provider) { const cli = this.getScan()?.clis?.[provider]; assert(cli?.available, `${provider === 'cc' ? 'Claude Code' : 'Codex'} 尚未就绪，请先完成本机扫描或在设置中指定程序路径。`, 409); return cli.path; }
   idle(id) { assert(!this.busy.has(id) && !this.pumps.has(id)&&!this.collaboration.active.has(id), '此课题已有任务运行中。', 409); }
   collaborate(id,input={}){return this.collaboration.start(id,input);}
@@ -63,7 +51,7 @@ export class Workflow {
     const retained=new Set(p.architecture.workers.filter(w=>w.pinned||p.tasks.some(t=>t.workerId===w.id&&!t.reportId&&!['completed','superseded'].includes(t.status))).map(w=>w.id));
     assert(retained.size<=next.maxWorkers,'仍有待办或固定配置的 CX 超过此数量上限，请先完成待办或调整固定成员。');
     p.autonomy=next;p.collaboration.maxReviews=next.maxReviews;
-    this.store.doc(id,'10-leader-policy.md','CC Leader 自主研究设置',`# CC Leader\n\n模式：${next.mode}\n活跃 CX 上限：${next.maxWorkers}\n并发上限：${next.maxParallel}\n单轮复核上限：${next.maxReviews}\n\n${next.brief}\n\n研究者确认目标与首轮问卷后启动。CC 自主组织团队、调节未固定成员的模型、复核证据、安排替代实验与阶段推进；超出已确认边界或缺少必要输入时请求研究者处理。所有组织调整留存 Markdown。`,'settings');
+    this.store.doc(id,'10-leader-policy.md','CC Leader 自主研究设置',`# CC Leader\n\n模式：${next.mode}\n活跃 CX 上限：${next.maxWorkers}\n并发上限：${next.maxParallel}\n单轮复核上限：${next.maxReviews}\n\n${next.brief}\n\n研究者确认目标后，CC 说明做什么、为什么这样做，然后推进。CC 自主组织团队、调节未固定成员的模型、复核证据、安排替代实验与阶段推进；超出已确认边界或缺少必要输入时请求研究者处理。所有组织调整留存 Markdown。`,'settings');
     this.runner.changed();
   }
   stageReview(id,input){
@@ -122,9 +110,9 @@ export class Workflow {
     const content=text(message,20000);p.proposalReviewRequired=true;p.conversation.push({id:uid(),role:'user',content,at:now()});
     this.writeConversation(p);
     const history=p.conversation.map(m=>`${m.role==='user'?'研究者':'CC 导师'}：${m.content}`).join('\n\n');
-    const prompt=`你是这个课题的科研导师 CC。课题初始 title：${p.title}。课题文件夹：${p.directory}。\n\n请和研究者逐步澄清 idea、目标、已有工作、数据、算力、评价标准和边界，每轮只追问最关键的 1–3 个问题，避免上来要求一份完整方案。不要调用 CX，不执行实现。\n完整讨论记录：\n${history}\n\n当目标还不清晰时 phase=clarifying，message 是你自然的回复和追问，其他字段可为空字符串或空数组。当已有足够信息时 phase=proposal，给出 direction、ideas、researchTopic 和可操作的科研 pipeline（3–8 步）。覆盖本课题适用的问题/文献、假设与研究设计、数据/实验准备、最小验证、正式实验、分析复核、写作与复现归档；每步写明产出、判断证据和失败时返回哪里，不将 CC/CX 调用阶段当作科研阶段；message 解释方向依据和待确认事项。pipeline 每步含 title 和 description。不得编造文献、数据与实验结果。所有内容中文。研究者明确点击确认前不得自动立项。`;
+    const prompt=`你是这个课题的科研导师 CC。课题初始 title：${p.title}。课题文件夹：${p.directory}。\n\n请和研究者逐步澄清 idea、目标、已有工作、数据、算力、评价标准和边界，每轮只追问最关键的 1–3 个问题，避免上来要求一份完整方案。不要调用 CX，不执行实现。\n完整讨论记录：\n${history}\n\n当目标还不清晰时 phase=clarifying，message 是你自然的回复和追问，其他字段可为空字符串或空数组。当已有足够信息时 phase=proposal，给出 direction、ideas、researchTopic 和可操作的科研 pipeline（3–8 步）。提案作为初步方向：先规划查阅原始文献，寻找经典、近期方法与论文实际使用的 baseline，提取数据、划分、指标、训练条件和公平比较协议；不能凭记忆捏造已完成的调研或指标。正式实施前工作台会让你完成文献—方法对照和评测方案，再细化设计。覆盖本课题适用的问题/文献、假设与研究设计、数据/实验准备、最小验证、正式实验、分析复核、写作与复现归档；每步写明产出、判断证据和失败时返回哪里，不将 CC/CX 调用阶段当作科研阶段；message 解释方向依据和待确认事项。pipeline 每步含 title 和 description。不得编造文献、数据与实验结果。所有内容中文。研究者明确点击确认前不得自动立项。`;
     return this.launch(id,'chatting',async token=>{
-      const result=await this.runner.run({projectId:id,provider:'cc',kind:'intake',title:'主导师 CC · 澄清目标与起草提案',executable,cwd:this.store.folder(id),prompt:prompt+'\n当 phase=proposal 时，proposal 字段提供 Markdown 提案初稿，说明问题、假设、方法、实验与资源约束、证据缺口和失败标准。初稿之后由三位独立 CC 评委审查并互评，你再逐条回应修订，研究者确认修订稿后才进入问卷与 CX 执行。clarifying 时 proposal 可为空。若这是新一轮修改，结合此前修订稿与评委意见继续完善：'+JSON.stringify(p.proposal||null),schema:intakeSchema,sessionId:p.ccSessionId||undefined});
+      const result=await this.runner.run({projectId:id,provider:'cc',kind:'intake',title:'主导师 CC · 澄清目标与起草提案',executable,cwd:this.store.folder(id),prompt:prompt+'\n当 phase=proposal 时，proposal 字段提供 Markdown 提案初稿，说明问题、假设、方法、实验与资源约束、证据缺口和失败标准。初稿之后由三位独立 CC 评委审查并互评，你再逐条回应修订，三位委员复审修订稿全票通过并经研究者审核后，你说明执行步骤和理由，随后组织 CX 推进，不再生成问卷。clarifying 时 proposal 可为空。若这是新一轮修改，结合此前修订稿与评委意见继续完善：'+JSON.stringify(p.proposal||null),schema:intakeSchema,sessionId:p.ccSessionId||undefined});
       if(token.cancelled)throw Object.assign(new Error('立项讨论已停止。'),{cancelled:true});
       const data=structured(result);text(data.message,30000);assert(['clarifying','proposal'].includes(data.phase),'CC 讨论阶段格式错误。');
       if(data.phase==='proposal'){text(data.direction);text(data.researchTopic);assert(Array.isArray(data.ideas)&&data.ideas.every(i=>typeof i==='string')&&Array.isArray(data.pipeline)&&data.pipeline.length>=1&&data.pipeline.length<=12,'CC 尚未提供完整科研主题和 pipeline。');for(const s of data.pipeline){text(s.title,500);text(s.description,10000);}p.proposal=data;}
@@ -146,7 +134,22 @@ export class Workflow {
     }
     return this.launch(id,'proposal_reviewing',token=>this.council.run(id,token));
   }
-  activate(id){const p=this.store.project(id);this.idle(id);assert(p.proposal&&!p.intakeConfirmed,'请先与 CC 澄清目标并得到研究方向。',409);assert(reviewReady(p),'请先完成三位 CC 评委的评审、互评与主导师修订，再确认提案。',409);p.researchTopic=p.proposal.researchTopic;p.pipeline=p.proposal.pipeline;p.brief=this.proposalMarkdown(p)+'\n\n## 评审回应\n\n'+p.proposal.decisions.map(x=>`- ${x.issueId} / ${x.action}：${x.reason}；修改：${x.change}`).join('\n')+'\n\n## 待研究者决定\n\n'+p.proposal.openQuestions.map(x=>'- '+x).join('\n');p.intakeConfirmed=true;p.status='draft';this.store.doc(id,'00-brief.md','已确认的科研主题',p.brief,'brief');this.store.log('研究者已确认评审后的科研提案，课题进入研究设计与问卷。',id);this.runner.changed();}
+  activate(id,input={}){
+    const p=this.store.project(id);this.idle(id);
+    assert(p.proposal&&!p.intakeConfirmed,'请先与 CC 澄清目标并得到研究方向。',409);
+    assert(reviewReady(p),'请先完成三位 CC 评委的评审、互评与主导师修订，再确认提案。',409);
+    const round=p.proposalReviews.at(-1);assert(input.reviewRoundId===round.id&&input.sourceHash===round.finalHash,'提案审核版本已变化，请刷新后审核当前版本。',409);
+    p.researchTopic=p.proposal.researchTopic;p.pipeline=p.proposal.pipeline;
+    p.brief=this.proposalMarkdown(p)+'\n\n## 评审回应\n\n'+p.proposal.decisions.map(x=>'- '+x.issueId+' / '+x.action+'：'+x.reason+'；修改：'+x.change).join('\n')+'\n\n## 尚需关注的问题\n\n'+p.proposal.openQuestions.map(x=>'- '+x).join('\n');
+    p.intakeConfirmed=true;p.status='draft';p.error='';
+    const approved=this.council&&p.proposalReviews.at(-1);if(approved)approved.userDecision={action:'approve',sourceHash:approved.finalHash,content:'用户确认当前提案，允许出环。',at:now()};
+    this.store.doc(id,'00-brief.md','已确认的科研主题',p.brief,'brief');
+    this.store.log('研究方向已确认。CC 将说明执行安排和理由，随后组织 CX 推进。',id);this.runner.changed();
+    if(isAuto(p)||p.architecture.confirmed){
+      if(!this.getScan()?.clis?.cc?.available||!this.getScan()?.clis?.cx?.available){p.error='研究方向已保存。请连接 CC 与 CX 后继续，CC 将说明安排并执行。';this.runner.changed();return;}
+      return this.collaborate(id);
+    }
+  }
   launch(id, stage, action) {
     const p = this.store.project(id); this.idle(id); this.busy.add(id); p.status = stage; p.error = ''; this.runner.changed();
     const token={cancelled:false};this.operations.set(id,token);
@@ -154,75 +157,57 @@ export class Workflow {
     token.promise=promise;
     return promise;
   }
-  brainstorm(id, revise = false) {
-    const p = this.store.project(id), executable = this.cli('cc'); this.idle(id);
-    assert(p.intakeConfirmed,'请先与 CC 讨论并确认科研主题。',409);
-    assert(!p.tasks.some(t=>t.status === 'completed'), '已有执行产物，请新建课题以保留当前批阅和执行记录。', 409);
-    const dir = this.store.folder(id), brief = fs.readFileSync(path.join(dir,'00-brief.md'),'utf8');
-    const councilReviewed=Boolean(p.proposalReviews?.some(r=>r.status==='completed'));
-    const agents = councilReviewed?undefined:Object.fromEntries(roles.map(r=>[r.key,{description:r.title,prompt:r.prompt,tools:['Read','Glob','Grep','WebSearch','WebFetch']} ]));
-    const review = revise ? '\n研究者批阅（必须据此重做问卷，保留有用结论）：\n' + JSON.stringify(p.questions) : '';
-    const prompt = `你是科研协调者 CC。研究目标如下（完整原文来自 00-brief.md）：\n${brief}\n\n${councilReviewed?'三位 CC 评委已完成独立评审与互评，研究者已确认你的修订稿。现在根据修订稿、意见回应和未决问题生成 summary 与 1–12 个 questions，不再重复四视角头脑风暴。':'请调用四个已定义的原生子智能体 novelty、methods、experiments、skeptic，分别完成独立讨论。收齐结果后交叉比较，保留分歧，输出 summary、4 个 perspectives 和 1–12 个需要研究者决定的 questions。'}每题给 2–5 个选项、理由和建议。不要代替研究者批准，不要实施代码。区分已知事实、假设和待验证事项。不编造论文、数据或实验结果。所有内容中文。输出必须符合 JSON Schema。科研流程不是 AI 调用顺序：先厘清问题与文献证据，再设计可检验假设、数据和实验、基线、正式实验、分析与复现。问卷只包含当前必须由研究者决定的研究设计与边界，后续证据可触发新一轮决策。你的结果由工作台写成 Markdown 交接文档。${review}`;
-    const round = (p.round || 0) + 1;
-    this.store.doc(id, `01-cc-request-r${round}.md`, `CC 讨论指令 · 第 ${round} 轮`, prompt, 'request');
-    return this.launch(id, 'brainstorming', async()=>{
-      const schema=councilReviewed?{...brainstormSchema,required:['summary','questions'],properties:{summary:str,questions:brainstormSchema.properties.questions}}:brainstormSchema;
-      const result = await this.runner.run({projectId:id,provider:'cc',kind:'brainstorm',title:councilReviewed?'主导师 CC · 根据评审提案生成问卷':'CC · 四视角头脑风暴',executable,cwd:dir,prompt,schema,agents,sessionId:p.ccSessionId || undefined});
-      const raw=structured(result);
-      const data = councilReviewed?validateQuestionnaire(raw):validateBrainstorm(raw);
-      p.ccSessionId = result.job.sessionId || p.ccSessionId; p.round = round;
-      p.summary = data.summary; p.perspectives = councilReviewed?[]:data.perspectives;
-      p.questions = data.questions.map((q,i)=>({...q,id:`q${i+1}`,decision:'pending',answer:'',comment:''}));
-      p.tasks = [];
-      if(!councilReviewed)for (const [i,r] of roles.entries()) this.store.doc(id, `1${i}-${r.key}-r${round}.md`, r.title, `# ${r.title}\n\n${data.perspectives.find(p=>p.role===r.key).analysis}\n`, 'discussion');
-      this.store.doc(id, `20-questionnaire-r${round}.md`, `研究决策问卷 · 第 ${round} 轮`, `# ${p.title}：决策问卷\n\n${data.summary}\n\n`+p.questions.map((q,i)=>`## ${i+1}. ${q.title}\n\n${q.why}\n\n${q.options.map((o,j)=>`- ${String.fromCharCode(65+j)}. ${o}`).join('\n')}\n\n**CC 建议：** ${q.recommendation}\n`).join('\n'), 'questionnaire');
-      p.status = 'awaiting_review'; this.store.log('CC 已完成讨论，等待你逐项批阅。', id);
-    });
-  }
-  review(id, input) {
-    const p = this.store.project(id); this.idle(id);
-    assert(['awaiting_review','failed','interrupted'].includes(p.status) && !p.tasks.length, '当前阶段不能修改问卷。',409);
-    const q = p.questions.find(q=>q.id===input.questionId); assert(q,'问题不存在。',404);
-    assert(['approved','rejected','revise','pending'].includes(input.decision),'无效批阅状态。');
-    assert(typeof input.answer === 'string' && input.answer.length <= 10000 && typeof input.comment === 'string' && input.comment.length <= 10000,'批阅内容过长。');
-    if(input.decision==='approved') text(input.answer,10000);
-    if(input.decision==='revise') text(input.comment,10000);
-    Object.assign(q,{decision:input.decision,answer:input.answer.trim(),comment:input.comment.trim(),reviewedAt:now()});
-    this.writeDecisions(p); this.runner.changed(); return q;
-  }
-  writeDecisions(p) {
-    const labels={approved:'批准',rejected:'否决',revise:'要求修改',pending:'尚未批阅'};
-    return this.store.doc(p.id,`21-decisions-r${p.round || 1}.md`,'研究者批阅记录',`# ${p.title}：研究者决策\n\n`+p.questions.map(q=>`## ${q.id} · ${q.title}\n\n- 决定：${labels[q.decision]}\n- 选择：${q.answer || '—'}\n- 批注：${q.comment || '—'}\n`).join('\n'),'decisions');
-  }
+  // Old clients can still request the next step, but never create another questionnaire.
+  brainstorm(id) {assert(this.store.project(id).intakeConfirmed,'请先确认科研主题。',409);return this.collaborate(id);}
+  review(id) {this.store.project(id);assert(false,'历史问卷为只读记录；请通过 CC 对话更新要求。',409);}
   plan(id,token=null) {
     const p = this.store.project(id), executable = this.cli('cc'); if(!token)this.idle(id);else assert(this.collaboration.active.get(id)===token,'无效的内部调度。',409);
     assert(!p.tasks.length,'已存在任务计划；请继续执行现有计划。',409);
     assert(p.architecture.confirmed,'请先在课题架构中与 CC 讨论并确认 CX 分工。',409);
-    assert(p.questions.length && p.questions.every(q=>['approved','rejected'].includes(q.decision)),'请完成所有问题的批阅；要求修改的题目需先交回 CC 重做。',409);
-    assert(p.questions.some(q=>q.decision==='approved'),'没有批准的问题，不能生成执行任务。',409);
-    const doc = this.writeDecisions(p), decisions = this.store.readDoc(id,doc.id);
-    const prompt = `你是 CC 导师与调度者。目标：${p.title}\n${p.brief}\n\n本课题 CX 架构：\n${activeWorkers(p).map(w=>`${w.id} (${w.name}): ${w.role}`).join('\n')}\n\n以下来自已写入本地的研究者批阅文件 ${decisions.path}：\n${decisions.content}\n\n遵循正常科研过程：问题澄清、文献缺口、假设与设计、数据准备、最小验证、正式实验、分析复核、写作归档。当前只为批准的问题生成 1–8 个可独立执行的小步骤，不要一次包办全课题；每个步骤返回后 CC 会复核并调度后续。任务需给出 researchStage，取值 question/literature/design/data/pilot/experiments/analysis/writing。，不能实施已否决内容。覆盖全部已批准问题。每个任务必须包含 title、instructions、acceptance、questionIds（只能引用获批 q 编号）和 workerId（必须是上述 CX 的 id，按分工选择）。不同 CX 使用独立目录；同一 CX 的任务按顺序执行，但不要依赖其他 CX 同时产生的文件。为需要跨 CX 串行依赖的工作合并成一个任务。说明必要输入和停止条件；缺少数据、API、文献时必须报告，不得伪造。你负责计划，不执行代码。中文，严格按 Schema 输出。`;
+    assert(p.intakeConfirmed,'请先确认科研主题。',409);
+    const revision=p.steering.revision;
+    const prompt = `你是 CC 导师与调度者。课题：${p.title}\n${scopeContext(p)}\n\n本课题 CX 架构：\n${activeWorkers(p).map(w=>w.id+' ('+w.name+'): '+w.role).join('\n')}\n\n请直接说明接下来做什么、为什么这样做，然后给团队分派 1–8 个小而可检查的步骤。summary 用用户能理解的语言说明本轮做什么；rationale 解释方案依据、顺序、必要假设、预期产出和验证方式。此说明用于告知，不等待用户批准，不生成问题、选项或问卷。遵循问题、文献、baseline 与评测协议、设计、数据、最小验证、正式实验、分析、写作的适用顺序。每个步骤返回后 CC 会复核并调度后续，不要求一次完成全部目标。每个任务包含 title、instructions、acceptance、questionIds（引用上述目标标识，通常为 research-goal）、workerId（活跃 CX 的 id）和 researchStage（question/literature/benchmark/design/data/pilot/experiments/analysis/writing）。不同 CX 使用独立目录，同一 CX 顺序执行；首轮不要安排依赖其他并行 CX 尚未产出文件的任务。说明必要输入与停止条件，缺少材料时报告，不伪造结果。你负责安排，实现交给 CX。中文，严格按 Schema 输出。`;
     this.store.doc(id,'29-dispatch-request.md','CC 任务拆解指令',prompt,'request');
-    const action=async()=>{
-      const result = await this.runner.run({projectId:id,provider:'cc',kind:'plan',title:'CC · 拆解获批任务',executable,cwd:this.store.folder(id),prompt,schema:planSchema,sessionId:p.ccSessionId || undefined});
-      if(token?.cancelled||this.runner.closing)return;
-      const data=validatePlan(structured(result),p.questions,activeWorkers(p)); p.ccSessionId=result.job.sessionId||p.ccSessionId;
-      p.tasks=data.tasks.map((t,i)=>({...t,id:uid(),index:i+1,status:'ready',sessionId:'',error:'',dependsOn:[],researchStage:t.researchStage||'unclassified'}));
-      for(const task of p.tasks) {
+    const action=async operation=>{
+      if(!token)p.collaboration.reviewsUsed=0;
+      if(!await this.benchmark.ensure(p,token||operation))return;
+      for(let attempt=0;attempt<3;attempt++){
+      const result = await this.runner.run({projectId:id,provider:'cc',kind:'plan',title:'CC · 说明执行安排与理由',executable,cwd:this.store.folder(id),prompt:prompt+'\n导师上次对安排的修改要求：'+(p.executionPlan?.revisionInstructions||'首次安排')+'\n\n'+this.benchmark.context(p),schema:planSchema,sessionId:p.ccSessionId || undefined});
+      if((token||operation)?.cancelled||this.runner.closing)return;
+      assert(revision===p.steering.revision,'研究要求已更新，已停止旧计划；继续后 CC 将按新要求重新安排。',409);
+      const data=validatePlan(structured(result),p,activeWorkers(p)); p.ccSessionId=result.job.sessionId||p.ccSessionId;
+      const tasks=data.tasks.map((t,i)=>({...t,benchmarkRunId:p.benchmarkResearch.runs.at(-1).id,id:uid(),index:i+1,status:'ready',sessionId:'',error:'',dependsOn:[],researchStage:t.researchStage||'unclassified'}));
+      const noticeId=uid(),notice='# CC 的执行说明\n\n## 接下来做什么\n\n'+data.summary+'\n\n## 为什么这样做\n\n'+data.rationale+'\n\n## 具体步骤\n\n'+tasks.map(t=>'### T'+t.index+' · '+t.title+'\n\n'+t.instructions+'\n\n验收：'+t.acceptance).join('\n\n')+'\n\n常规安排经导师认可后推进；你可以随时通过项目对话调整要求或暂停。';
+      const document=this.store.doc(id,'28-execution-plan-'+noticeId+'.md','CC 执行安排与理由',notice,'execution-plan');
+      p.executionPlan={id:noticeId,summary:data.summary,rationale:data.rationale,at:now(),documentId:document.id,jobId:result.job.id,taskIds:tasks.map(t=>t.id),benchmarkRunId:p.benchmarkResearch.runs.at(-1).id,requirementsRevision:revision,meetingStatus:'pending'};
+      p.executionPlans||=[];p.executionPlans.push({...p.executionPlan});
+      const meeting=await this.meetings.review(p,'design','plan:'+noticeId,document.id,token||operation);
+      if(!meeting)return;
+      Object.assign(p.executionPlan,{meetingStatus:meeting.data.verdict,meetingId:meeting.id,revisionInstructions:meeting.data.revisionInstructions});
+      Object.assign(p.executionPlans.at(-1),p.executionPlan);
+      if(meeting.data.verdict==='blocked')return this.meetings.pause(p,token||operation,meeting.data.revisionInstructions);
+      if(meeting.data.verdict==='revise')continue;
+      for(const task of tasks) {
         const name=`30-task-${task.index}.md`;
         const worker=p.architecture.workers.find(w=>w.id===task.workerId);
-        const d=this.store.doc(id,name,`${worker.name} / T${task.index} · ${task.title}`,`# ${worker.name} / T${task.index}：${task.title}\n\n## CX 分工\n\n${worker.role}\n\n## 批准依据\n\n${task.questionIds.join(', ')}\n\n## 执行要求\n\n${task.instructions}\n\n## 验收标准\n\n${task.acceptance}\n\n## 批阅原文\n\n${decisions.content}\n\n## 本课题规则\n\n${this.store.rulesText(id)}\n\n## Skills\n\n本课题显式选中的 Skill 指令保存在同目录 05-selected-skills.md（若存在）；执行时读取并遵循适用内容。\n\n## 回报约定\n\n只在分配给你的工作目录创建或修改产物；最终用 Markdown 汇报文件、验证过程、结果和未解决的问题。不要声称未运行的实验或测试已通过。\n`,'task');
+        const d=this.store.doc(id,name,`${worker.name} / T${task.index} · ${task.title}`,`# ${worker.name} / T${task.index}：${task.title}\n\n## CX 分工\n\n${worker.role}\n\n## 研究目标\n\n${task.questionIds.join(', ')}\n\n## 执行要求\n\n${task.instructions}\n\n## 验收标准\n\n${task.acceptance}\n\n## 已确认目标与约束\n\n${scopeContext(p)}\n\n## 性能衡量依据\n\n${this.benchmark.context(p)}\n\n## 本课题规则\n\n${this.store.rulesText(id)}\n\n## Skills\n\n本课题显式选中的 Skill 指令保存在同目录 05-selected-skills.md（若存在）；执行时读取并遵循适用内容。\n\n## 回报约定\n\n只在分配给你的工作目录创建或修改产物；最终用 Markdown 汇报文件、验证过程、结果和未解决的问题。不要声称未运行的实验或测试已通过。\n`,'task');
         task.documentId=d.id;
       }
-      p.status='ready'; this.store.log(`CC 已分派 ${p.tasks.length} 个 CX 任务。`,id);
+      p.tasks=tasks;
+      this.collaboration.message(p,'CC','研究者',notice,{kind:'execution-plan',documentId:document.id});
+      p.status='ready'; this.store.log(`CC 已分派 ${p.tasks.length} 个 CX 任务。`,id);return;
+      }
+      return this.meetings.pause(p,token||operation,'执行安排已修改 3 次，仍需导师组会认可；进度已保存，可继续。');
     };
-    return token?action():this.launch(id,'planning',action);
+    return token?action(token):this.launch(id,'planning',action);
   }
   execute(id, taskId) {
     const p=this.store.project(id),executable=this.cli('cx'); this.idle(id);
-    assert(p.tasks.length && p.questions.every(q=>['approved','rejected'].includes(q.decision)),'任务尚未获得批准。',409);
+    assert(p.intakeConfirmed&&p.tasks.length,'请先确认研究目标并生成执行安排。',409);
+    assert(this.benchmark.ready(p),'请先在协作台完成当前研究要求下的文献调研与评测方案。',409);
     const tasks=p.tasks.filter(t=>(!taskId||t.id===taskId)&&['ready','failed','interrupted','cancelled'].includes(t.status));
     assert(tasks.length,'没有可以运行的任务。',409);
+    assert(tasks.every(t=>this.stageCouncil.canRun(p,t)&&this.meetings.canRun(p,t)),'请先完成前序步骤的导师组会，以及本阶段所需的三位委员与用户审核。',409);
     const token={cancelled:false},runningWorkers=new Set(); this.pumps.set(id,token); p.status='executing'; p.error='';
     for(const t of tasks)t.status='queued'; this.runner.changed();
     const work=async()=>{
@@ -241,7 +226,9 @@ export class Workflow {
         try {
           if(p.modelPolicy.allowCCSwitch)await this.chooseModel(p,worker,t,token);
           if(token.cancelled)throw new Error('任务已停止。');
-          const result=await this.runner.run({projectId:id,provider:'cx',kind:'execution',title:`${worker?.name||workerId} · ${t.title}`,executable,cwd,prompt,workerId,taskId:t.id,sessionId:t.sessionId||worker?.sessionId||undefined});
+          assert(this.benchmark.ready(p),'研究要求已变化，请先更新评测方案再执行。',409);t.benchmarkRunId=p.benchmarkResearch.runs.at(-1).id;
+          assert(this.stageCouncil.canRun(p,t)&&this.meetings.canRun(p,t),'阶段审核尚未通过，任务保持在当前循环。',409);
+          const result=await this.runner.run({projectId:id,provider:'cx',kind:'execution',title:`${worker?.name||workerId} · ${t.title}`,executable,cwd,prompt:prompt+'\n\n'+this.benchmark.context(p),workerId,taskId:t.id,sessionId:t.sessionId||worker?.sessionId||undefined});
           t.sessionId=result.job.sessionId||t.sessionId;t.status='completed';t.jobId=result.job.id;
           if(worker)worker.sessionId=t.sessionId;
           const d=this.store.doc(id,`40-report-${t.index}.md`,`${worker?.name||workerId} / T${t.index} 执行报告`,result.text||'CLI 正常退出，但没有返回最终报告。请检查运行日志与产物。','report');t.reportId=d.id;
@@ -282,9 +269,10 @@ export class Workflow {
   }
   summarize(id) {
     const p=this.store.project(id),executable=this.cli('cc');this.idle(id);
-    assert(p.tasks.length&&p.tasks.every(t=>t.status==='completed'),'请先完成全部 CX 任务。',409);
+    assert(p.tasks.length&&p.tasks.every(t=>['completed','superseded'].includes(t.status)),'请先完成全部 CX 任务。',409);
+    assert(p.tasks.every(t=>this.meetings.resolved(p,t)),'请先继续协作，完成每一步的导师汇报与方向判断，修改通过后再汇总。',409);
     for(const kind of ['results','manuscript'])assert(!this.stageCouncil.scope(p,kind).length||this.stageCouncil.approved(p,kind),'请先继续协作，完成实验结果或论文初稿的三位评委评审与复审。',409);
-    const reports=p.tasks.map(t=>`## CX-${t.index}\n验收要求：${t.acceptance}\n\n${this.store.readDoc(id,t.reportId).content}`).join('\n\n');
+    const reports=p.tasks.filter(t=>t.status!=='superseded').map(t=>`## CX-${t.index}\n验收要求：${t.acceptance}\n\n${this.store.readDoc(id,t.reportId).content}`).join('\n\n');
     const prompt=`你是 CC。请审阅以下 CX 自报的结果，与验收标准逐项比较，汇总为 Markdown 研究执行报告。指出未经独立验证的主张、未完成项与后续建议，不把 CX 自报成功当作独立验收通过。不要再启动实现任务。\n\n${reports}`;
     return this.launch(id,'reviewing',async()=>{const result=await this.runner.run({projectId:id,provider:'cc',kind:'summary',title:'CC · 汇总与复核',executable,cwd:this.store.folder(id),prompt,sessionId:p.ccSessionId||undefined});this.store.doc(id,'50-cc-summary.md','CC 最终汇总',result.text,'summary');p.status='completed';this.store.log('CC 已提交汇总报告。',id);});
   }
@@ -297,11 +285,16 @@ export class Workflow {
     const p=this.store.project(id),executable=this.cli('cx');
     assert(this.getScan()?.sessions.some(s=>s.id===sessionId&&s.provider==='cx'),'该 CX 会话不在本次扫描结果中。');
     const doc=this.store.readDoc(id,docId),task=p.tasks.find(t=>t.documentId===docId);
-    assert(task&&doc.kind==='task'&&p.questions.every(q=>['approved','rejected'].includes(q.decision)),'只允许发送经过批阅后由 CC 生成的任务文档。');
+    assert(this.benchmark.ready(p),'请先在协作台完成文献调研与评测方案。',409);
+    assert(p.intakeConfirmed&&task&&doc.kind==='task','只允许发送已确认课题中由 CC 生成的任务文档。');
+    assert(this.stageCouncil.canRun(p,task)&&this.meetings.canRun(p,task),'请先完成三位委员与用户审核，再交接后续任务。',409);
     const help=invocation(executable,['queue','--help']);
     let output;try{output=await capture(help.command,help.args,{env:help.env});}catch{throw new Error('此 Codex 版本不支持 queue；可使用工作台创建的 CX 执行任务。');}
     assert(output.includes('--thread')&&output.includes('--message'),'此 Codex 版本不支持向已有会话发送消息。');
-    const message=`CC 已下发研究者批准的任务。请读取 Markdown 文件：${doc.path}。只执行该文件中授权的工作。若当前会话工作目录不合适，先告知研究者。`;
+    assert(this.benchmark.ready(p),'研究要求已变化，请先更新评测方案。',409);
+    assert(this.stageCouncil.canRun(p,task)&&this.meetings.canRun(p,task),'阶段审核已变化，请先处理待审核事项。',409);
+    const protocol=this.store.readDoc(id,p.benchmarkResearch.runs.at(-1).protocol.documentId);
+    const message=`CC 已下发本课题的任务。请先读取当前评测方案：${protocol.path}，采用协议版本 ${p.benchmarkResearch.runs.at(-1).id}，它优先于旧任务中的评测设置。请读取 Markdown 文件：${doc.path}。只执行该文件中授权的工作。若当前会话工作目录不合适，先告知研究者。`;
     const result=await this.runner.run({projectId:id,provider:'cx',kind:'handoff',title:'向已有 CX 发送 MD 交接',executable,cwd:this.store.folder(id),prompt:'',args:['queue','--thread',sessionId,'--message',message]});
     this.store.log('任务 MD 已加入已有 CX 的消息队列；执行状态请在原终端查看。',id);return result.job;
   }

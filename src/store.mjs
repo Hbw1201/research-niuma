@@ -21,7 +21,8 @@ export function upgradeProject(p) {
   p.autonomy ||= defaultAutonomy('assisted');p.teamChanges ||= [];
   p.steering ||= {revision:0,turns:[],sessionId:''};
   p.teamConversation ||= [];p.modelChanges ||= [];
-  p.proposalReviews ||= [];
+  p.benchmarkResearch ||= {revision:0,runs:[]};
+  p.proposalReviews ||= [];p.executionPlans ||= [];
   p.stageReviews ||= [];p.stageReviewRevisions ||= {};
   p.collaboration ||= {state:'idle',maxReviews:8,reviewsUsed:0,messages:[],reviews:[],pendingDecision:null};
   p.collaboration.messages ||= [];p.collaboration.reviews ||= [];
@@ -50,10 +51,12 @@ export class Store {
       for(const p of this.state.projects){upgradeProject(p);p.skillIds ||= [];p.conversation ||= [];p.directory ||= this.workspace;p.intakeConfirmed ??= true;}
       for(const p of this.state.projects)for(const t of p.steering.turns)if(['queued','replying'].includes(t.status)){t.status='interrupted';t.error='工作台已重启，可重试这条消息。';}
       recoverUsage(this.state,id=>this.folder(id));
+      for(const p of this.state.projects)for(const m of p.mentorMeetings||[])if(m.status==='running'){m.status='interrupted';m.error='组会中断，继续后重新核对本轮材料。';}
       for (const job of this.state.jobs) if (['running', 'queued', 'cancelling'].includes(job.status)) { job.status = 'interrupted'; job.error = '工作台在此任务完成前退出；请检查产物后手动重试。'; }
-      for(const p of this.state.projects)for(const r of p.proposalReviews)if(r.status==='running'){r.status='interrupted';r.error='工作台已重启，已完成的评审保留；继续后仅补齐未完成步骤。';p.status='interrupted';for(const step of [...r.reviewers.flatMap(m=>[m.independent,m.cross]),r.synthesis])if(step.status==='running')step.status='interrupted';}
-      for(const p of this.state.projects)for(const r of p.stageReviews)if(r.status==='running'){r.status='interrupted';r.error='工作台已重启，继续协作后恢复未完成的评审与修改。';for(const step of [...r.reviewers.flatMap(m=>[m.independent,m.cross]),r.synthesis])if(step.status==='running')step.status='interrupted';}
-      for (const p of this.state.projects) { if (['proposal_reviewing','brainstorming','planning','executing','reviewing','chatting','team_chatting'].includes(p.status)) p.status = 'interrupted'; for (const t of p.tasks || []) if (['running','queued'].includes(t.status)) t.status = 'interrupted'; }
+      for(const p of this.state.projects)for(const r of p.proposalReviews)if(r.status==='running'){r.status='interrupted';r.error='工作台已重启，已完成的评审保留；继续后仅补齐未完成步骤。';p.status='interrupted';for(const step of [...r.reviewers.flatMap(m=>[m.independent,m.cross,m.verification].filter(Boolean)),r.synthesis])if(step.status==='running')step.status='interrupted';}
+      for(const p of this.state.projects)for(const r of p.benchmarkResearch.runs)if(r.status==='running'){r.status='interrupted';r.error='工作台已重启，继续后补齐未完成的文献与评测准备。';for(const s of [r.literature,r.protocol])if(s.status==='running')s.status='interrupted';}
+      for(const p of this.state.projects)for(const r of p.stageReviews)if(r.status==='running'){r.status='interrupted';r.error='工作台已重启，继续协作后恢复未完成的评审与修改。';for(const step of [...r.reviewers.flatMap(m=>[m.independent,m.cross,m.verification].filter(Boolean)),r.synthesis])if(step.status==='running')step.status='interrupted';}
+      for (const p of this.state.projects) { if (['researching','proposal_reviewing','brainstorming','planning','executing','reviewing','chatting','team_chatting'].includes(p.status)) p.status = 'interrupted'; for (const t of p.tasks || []) if (['running','queued'].includes(t.status)) t.status = 'interrupted'; }
       for(const p of this.state.projects)if(p.collaboration.state==='running'){p.collaboration.state='paused';p.collaboration.pauseReason='工作台已退出，历史步骤保留；点击继续后恢复反馈与待办。';p.status='interrupted';}
       this.save();
     } catch (e) { this.close(); throw e; }
@@ -103,7 +106,7 @@ export class Store {
     this.state.projects.unshift(p);
     upgradeProject(p);p.architecture.confirmed=!!brief;
     p.autonomy=defaultAutonomy();p.modelPolicy.allowCCSwitch=true;p.collaboration.maxReviews=p.autonomy.maxReviews;
-    this.doc(p.id, '00-brief.md', '研究目标', `# ${p.title}\n\n${p.brief}\n\n## 协作约定\n\nCC 主持讨论与拆解任务；研究者逐项批阅；CX 只执行已批准的任务。所有交接留存为 Markdown。\n`);
+    this.doc(p.id, '00-brief.md', '研究目标', `# ${p.title}\n\n${p.brief}\n\n## 协作约定\n\nCC 主持讨论与拆解任务；确认研究方向后，CC 告知做什么和理由，再组织 CX 推进；研究者随时通过对话调控。所有交接留存为 Markdown。\n`);
     this.log('新建课题：' + p.title, p.id);
     return p;
   }

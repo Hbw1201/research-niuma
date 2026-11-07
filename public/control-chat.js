@@ -47,13 +47,13 @@ export class ControlChat {
     if(latest&&this.visible)sessionStorage.setItem(badgeKey,latest.id);
     const unread=latest&&sessionStorage.getItem(badgeKey)!==latest.id;
     const launch=document.querySelector('#control-launch');
-    if(launch){launch.setAttribute('aria-expanded',String(this.visible));launch.textContent=pending?'CC 回复中…':unread?'CC 有新消息':'CC 总控对话';}
+    if(launch){launch.setAttribute('aria-expanded',String(this.visible));launch.textContent=pending?'CC 回复中…':unread?'CC 有新消息':'和 CC 对话';}
     document.querySelector('.work-layout')?.classList.toggle('control-open',this.visible);
     this.host.hidden=!this.visible;
     if(!p||!this.visible)return;
     const draft=this.drafts.get(this.activeKey),esc=this.esc;
     if(!this.host.firstElementChild){
-      this.host.innerHTML=`<header class="control-head"><div><strong>CC 总控对话</strong><small></small></div><button type="button" data-close-control aria-label="收起 CC 总控对话">收起</button></header>
+      this.host.innerHTML=`<header class="control-head"><div><strong>和 CC 对话</strong><small></small></div><button type="button" data-close-control aria-label="收起导师对话">收起</button></header>
         <div class="control-feed" role="log" aria-label="课题总控对话记录" aria-live="polite"></div>
         <form id="control-form" class="control-compose"><label><span class="control-label">给当前课题的 CC</span><textarea name="message" required rows="2" maxlength="20000" placeholder="问进度、讨论结果，或告诉 CC 下一步要改什么…"></textarea></label>
         <div class="control-actions"><label><input type="checkbox" name="requirement"> 直接设为课题要求</label><button class="primary" type="submit">发送</button></div><small class="control-status" role="status"></small></form>`;

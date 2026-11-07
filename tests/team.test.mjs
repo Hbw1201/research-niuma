@@ -1,3 +1,4 @@
+import {seedBenchmark} from './fixtures/benchmark-research.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -10,7 +11,7 @@ import {usageTracker,summarizeUsage} from '../src/usage.mjs';
 import {scanSkills} from '../src/skills.mjs';
 import {startServer} from '../src/server.mjs';
 
-function fixture(t){const root=fs.mkdtempSync(path.join(os.tmpdir(),'relay-team-')),store=new Store(root),p=store.newProject({title:'Fixture',brief:'test only'}),runner=new Runner(store),flow=new Workflow(store,runner,()=>({clis:{cc:{available:true,path:'cc'},cx:{available:true,path:'cx'}}}));t.after(async()=>{await runner.close();store.close();assert(fs.realpathSync(root).startsWith(fs.realpathSync(os.tmpdir())+path.sep));fs.rmSync(root,{recursive:true,force:true});});p.autonomy.mode='assisted';p.modelPolicy.allowCCSwitch=false;return{root,store,p,runner,flow};}
+function fixture(t){const root=fs.mkdtempSync(path.join(os.tmpdir(),'relay-team-')),store=new Store(root),p=store.newProject({title:'Fixture',brief:'test only'}),runner=new Runner(store),flow=new Workflow(store,runner,()=>({clis:{cc:{available:true,path:'cc'},cx:{available:true,path:'cx'}}}));t.after(async()=>{await runner.close();store.close();assert(fs.realpathSync(root).startsWith(fs.realpathSync(os.tmpdir())+path.sep));fs.rmSync(root,{recursive:true,force:true});});seedBenchmark(p,store);p.autonomy.mode='assisted';p.modelPolicy.allowCCSwitch=false;return{root,store,p,runner,flow};}
 function addTask(store,p,index=1){p.questions=[{id:'q1',decision:'approved'}];const d=store.doc(p.id,`30-task-${index}.md`,'approved task','Approved fixture task','task');const task={id:'t'+index,index,title:'Task '+index,instructions:'test fixture',acceptance:'return fixture',workerId:p.architecture.workers[0].id,documentId:d.id,status:'ready'};p.tasks.push(task);return task;}
 
 test('usage includes CC subagents but subtracts restored totals across resume, ignoring duplicate assistant messages',()=>{

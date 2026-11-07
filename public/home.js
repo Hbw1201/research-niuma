@@ -69,7 +69,7 @@ function startHome(){
     $('stop').textContent=state==='cancelling'?'停止中…':'■ 停止生成';
     $('send').disabled=createPage||Boolean(sending)||!ready||!input.value.trim()||Boolean(selected&&data?.chat?.id!==selected);
     const status=$('connection');status.classList.toggle('online',Boolean(ready));
-    status.textContent=!online?'连接中':!data?.cli?'检测 CLI 中':ready?'本机 CLI 就绪':'Claude Code 未就绪';
+    status.textContent=!online?'连接中':!data?.cli?'检测 CLI 中':ready?'已连接':'Claude Code 未就绪';
     const notice=$('notice');notice.hidden=false;
     if(feedback)notice.textContent=feedback;
     else if(!online)notice.textContent=data?'正在重新连接本机服务…':'正在连接本机工作台…';
@@ -106,8 +106,8 @@ function startHome(){
     $('show-files').hidden=!project||createPage;
     $('show-files').textContent=showFiles?'收起文件':'共享文件';
     $('welcome').hidden=Boolean(selected)||createPage||showFiles;
-    $('welcome-title').textContent=project?'在项目中和 Claude Code 聊聊':'和 Claude Code 聊聊';
-    $('welcome-copy').textContent=project?'对话在所选目录中进行，文件和实验记录与实验区共享。':'直接开始独立对话，或在左侧选择一个项目。';
+    $('welcome-title').textContent=project?'今天推进哪一步？':'从一个想法开始';
+    $('welcome-copy').textContent=project?'和 CC 讨论这个项目，也可以进入实验区推进研究。':'和 CC 讨论想法，或打开项目继续研究。';
     $('scope-label').textContent=project?'目录：'+(selectedFolder||'项目根目录'):'独立对话 · 当前工作区';
     $('choose-chat-folder').hidden=!project||Boolean(selected);
     $('project-files-panel').hidden=!project||!showFiles||createPage;

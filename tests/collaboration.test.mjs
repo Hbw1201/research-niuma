@@ -1,3 +1,4 @@
+import {seedBenchmark,benchmarkResponse} from './fixtures/benchmark-research.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -8,7 +9,7 @@ import {Runner} from '../src/runner.mjs';
 import {Workflow} from '../src/workflow.mjs';
 import {graphData} from '../public/pipeline-ui.js';
 import {validateFeedback} from '../src/collaboration.mjs';
-function fixture(t){const root=fs.mkdtempSync(path.join(os.tmpdir(),'research-loop-')),store=new Store(root),p=store.newProject({title:'Isolated test',brief:'Test only'}),runner=new Runner(store),flow=new Workflow(store,runner,()=>({clis:{cc:{available:true,path:'cc'},cx:{available:true,path:'cx'}}}));p.questions=[{id:'q1',decision:'approved',answer:'Validate fixture only'}];t.after(async()=>{await runner.close();store.close();assert(fs.realpathSync(root).startsWith(fs.realpathSync(os.tmpdir())+path.sep));fs.rmSync(root,{recursive:true,force:true});});p.autonomy.mode='assisted';p.modelPolicy.allowCCSwitch=false;return{root,store,p,runner,flow};}
+function fixture(t){const root=fs.mkdtempSync(path.join(os.tmpdir(),'research-loop-')),store=new Store(root),p=store.newProject({title:'Isolated test',brief:'Test only'}),runner=new Runner(store),flow=new Workflow(store,runner,()=>({clis:{cc:{available:true,path:'cc'},cx:{available:true,path:'cx'}}}));seedBenchmark(p,store);p.questions=[{id:'q1',decision:'approved',answer:'Validate fixture only'}];t.after(async()=>{await runner.close();store.close();assert(fs.realpathSync(root).startsWith(fs.realpathSync(os.tmpdir())+path.sep));fs.rmSync(root,{recursive:true,force:true});});p.autonomy.mode='assisted';p.modelPolicy.allowCCSwitch=false;return{root,store,p,runner,flow};}
 function add(store,p,worker='cx-1'){const index=p.tasks.length+1,d=store.doc(p.id,`30-task-${index}.md`,'Fixture task','Return fixture evidence only','task'),task={id:'task-'+index,index,title:'Attempt '+index,instructions:'Fixture',acceptance:'Evidence',questionIds:['q1'],workerId:worker,documentId:d.id,status:'ready',researchStage:'pilot',dependsOn:[]};p.tasks.push(task);return task;}
 function feedback(extra={}){return{summary:'Review actual fixture',assessment:'passed',evidence:'Fixture report, not an actual experiment',decision:'finish',reason:'Explicit test evidence',question:'',handoff:'Share fixture findings',nextTasks:[],...extra};}
 function next(t,worker='cx-2'){return{title:'Alternative B',instructions:'Use prior report to verify fixture',acceptance:'Return evidence',questionIds:['q1'],workerId:worker,dependsOn:[t.id],researchStage:'pilot',relation:'alternative'};}
@@ -50,18 +51,30 @@ test('stopping during CC feedback prevents another CX launch; resume reviews exi
 test('out-of-scope feedback never launches proposed task and CLI failure is sent back as an error report',async t=>{
  const {store,p,runner,flow}=fixture(t),a=add(store,p);let executions=0;
  runner.run=async args=>{if(args.kind==='execution'){executions++;throw new Error('Fixture tool failure');}assert.match(args.prompt,/Fixture tool failure/);return response(args,feedback({assessment:'retry',decision:'continue',nextTasks:[{...next(a),questionIds:['unapproved']}]}));};
- await flow.collaborate(p.id);assert.equal(executions,1);assert.equal(p.status,'failed');assert.match(p.error,/未经批准/);assert.equal(p.tasks.length,1);assert.equal(p.tasks[0].status,'failed');
+ await flow.collaborate(p.id);assert.equal(executions,1);assert.equal(p.status,'failed');assert.match(p.error,/未知|已否决/);assert.equal(p.tasks.length,1);assert.equal(p.tasks[0].status,'failed');
 });
 test('new researcher message after a completed cycle invokes CC again without repeating previous CX work',async t=>{
  const {store,p,runner,flow}=fixture(t);add(store,p);let executions=0,reviews=0;
  runner.run=async args=>{if(args.kind==='execution')executions++;if(args.kind==='feedback')reviews++;if(args.kind==='control-chat'){assert.match(args.prompt,/Check a different explanation/);return response(args,{reply:'Consider alternative explanations.',isRequirement:false});}return response(args,args.kind==='feedback'?feedback():null);};
  await flow.collaborate(p.id);await flow.collaboration.send(p.id,'Check a different explanation');assert.equal(executions,1);assert.equal(reviews,1);assert.equal(p.status,'cycle_complete');assert.equal(p.steering.turns[0].status,'answered');
 });
-test('confirmed questionnaire can plan and enter feedback loop in one action; no approval cannot start',async t=>{
- const {p,runner,flow}=fixture(t);p.questions[0].decision='pending';assert.throws(()=>flow.collaborate(p.id),/批阅/);p.questions[0].decision='approved';
- runner.run=async args=>response(args,args.kind==='plan'?{summary:'Fixture plan',tasks:[{title:'Pilot',instructions:'Fixture',acceptance:'Evidence',questionIds:['q1'],workerId:'cx-1',researchStage:'pilot'}]}:args.kind==='feedback'?feedback():null);
- await flow.collaborate(p.id);assert.equal(p.tasks.length,1);assert.equal(p.status,'cycle_complete');assert.equal(p.tasks[0].researchStage,'pilot');
+test('confirmed direction enters the feedback loop without questionnaire approval and announces the plan first',async t=>{
+ const {p,runner,flow,store}=fixture(t);p.questions=[{id:'old-pending',decision:'pending'},{id:'old-no',decision:'rejected',answer:'Do not use external data'}];
+ const before=structuredClone(p.questions),calls=[];
+ runner.run=async args=>{
+   calls.push(args.kind);
+   if(args.kind==='execution'){
+     assert(p.executionPlan);assert.match(p.executionPlan.rationale,/baseline/);
+     assert(p.collaboration.messages.some(m=>m.kind==='execution-plan'));
+     assert.match(store.readDoc(p.id,p.executionPlan.documentId).content,/为什么这样做/);
+   }
+   return response(args,args.kind==='plan'?{summary:'Run a minimal pilot',rationale:'Validate the baseline before a larger experiment',tasks:[{title:'Pilot',instructions:'Fixture',acceptance:'Evidence',questionIds:['research-goal'],workerId:'cx-1',researchStage:'pilot'}]}:args.kind==='feedback'?feedback():benchmarkResponse(args.kind));
+ };
+ await flow.collaborate(p.id);assert.equal(p.tasks.length,1);assert.equal(p.status,'cycle_complete',p.error);
+ assert.equal(p.tasks[0].researchStage,'pilot');assert.deepEqual(p.questions,before);assert(!calls.includes('brainstorm'));
+ const graph=graphData(p);assert(!graph.nodes.some(n=>['questionnaire','approval'].includes(n.id)));assert(graph.edges.some(e=>e.from.notice&&e.to.task));
 });
+
 test('restart pauses collaboration and preserves feedback; stage confirmation is an explicit human record',async t=>{
  const {root,store,p,flow}=fixture(t);p.collaboration.state='running';p.status='collaborating';store.save();store.close();const restored=new Store(root);t.after(()=>restored.close());assert.equal(restored.project(p.id).status,'interrupted');assert.equal(restored.project(p.id).collaboration.state,'paused');
  assert.throws(()=>validateFeedback(p,feedback({decision:'finish',assessment:'retry'})),/结束/);

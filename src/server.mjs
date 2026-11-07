@@ -20,8 +20,12 @@ Object.assign(assets,{'/':'home.html','/index.html':'home.html','/experiments/':
 assets['/control-chat.js'] = 'control-chat.js';
 assets['/workspace-ui.js'] = 'workspace-ui.js';
 assets['/workbench.css'] = 'workbench.css';
+assets['/interface.css'] = 'interface.css';
 assets['/project-files.js'] = 'project-files.js';
 assets['/project-files.css'] = 'project-files.css';
+assets['/benchmark-ui.js']='benchmark-ui.js';
+assets['/mentor-ui.js'] = 'mentor-ui.js';
+assets['/pipeline-map.js']='pipeline-map.js';
 assets['/proposal-review-ui.js'] = 'proposal-review-ui.js';
 assets['/stage-council-ui.js'] = 'stage-council-ui.js';
 assets['/proposal-review.css'] = 'proposal-review.css';
@@ -118,10 +122,11 @@ export async function startServer({ workspace = process.cwd(), port = 4318, scan
         store.state.settings={ccPath:body.ccPath.trim(),cxPath:body.cxPath.trim(),concurrency:body.concurrency};store.save();await refresh();broadcast();return json(res,200,{ok:true});
       }
       if(route==='/api/projects') {const p=store.newProject(body);broadcast();return json(res,201,p);}
-      const action=route.match(/^\/api\/projects\/([a-f0-9-]+)\/(brainstorm|review|plan|execute|stop|summarize|bind-cc|handoff|chat|activate|proposal-review|architecture|skills|models|team-chat|accept-team|collaborate|message|decide|stage-review|autonomy|control-chat)$/);
+      const action=route.match(/^\/api\/projects\/([a-f0-9-]+)\/(benchmark|brainstorm|review|plan|execute|stop|summarize|bind-cc|handoff|chat|activate|proposal-review|architecture|skills|models|team-chat|accept-team|collaborate|message|decide|stage-review|autonomy|control-chat)$/);
       if(action) {
         const [,id,verb]=action;store.project(id);
         if(verb==='control-chat'){const turn=workflow.steering.submit(id,body);return json(res,202,{id:turn.id,status:turn.status});}
+        if(verb==='benchmark')workflow.prepareBenchmark(id);
         if(verb==='brainstorm')workflow.brainstorm(id,Boolean(body.revise));
         if(verb==='review')workflow.review(id,body);
         if(verb==='plan')workflow.plan(id);
@@ -135,7 +140,7 @@ export async function startServer({ workspace = process.cwd(), port = 4318, scan
         if(verb==='handoff')await workflow.handoff(id,body.sessionId,body.documentId);
         if(verb==='chat')workflow.chat(id,body.message);
         if(verb==='proposal-review')workflow.reviewProposal(id);
-        if(verb==='activate')workflow.activate(id);
+        if(verb==='activate')workflow.activate(id,body);
         if(verb==='architecture')workflow.configure(id,body);
         if(verb==='autonomy')workflow.configureAutonomy(id,body);
         if(verb==='models')workflow.configureModels(id,body);

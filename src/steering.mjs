@@ -97,7 +97,7 @@ export class Steering {
     const c=p.collaboration,turns=p.steering.turns;
     const context={
       title:p.title, goal:p.researchTopic||p.brief, status:p.status, confirmed:p.intakeConfirmed,
-      approvedDecisions:p.questions.map(q=>({title:q.title,decision:q.decision,answer:q.answer})),
+      benchmark:p.benchmarkResearch?.runs?.at(-1)||null, executionPlan:p.executionPlan||null, historicalDecisions:p.questions.map(q=>({title:q.title,decision:q.decision,answer:q.answer})),
       pendingDecision:c.pendingDecision, plan:p.pipeline||p.proposal?.pipeline||[],
       team:p.architecture.workers.filter(w=>w.active!==false).map(w=>({name:w.name,role:w.role,model:w.model})),
       tasks:p.tasks.map(t=>({id:t.index,title:t.title,status:t.status,assessment:t.assessment})),
@@ -106,7 +106,7 @@ export class Steering {
       councils:(p.stageReviews||[]).slice(-4).map(r=>({kind:r.kind,round:r.number,status:r.status,phase:r.phase,summary:r.synthesis.data?.summary,modificationTasks:r.createdTaskIds,error:r.error})),
       earlierTurns:turns.slice(0,turns.indexOf(turn)).slice(-12).map(t=>({message:t.message,reply:t.reply})),
     };
-    const prompt=`你是当前课题的总控 CC。直接与研究者对话，结合以下真实状态回答，必要时使用只读工具核对证据。简洁说明目前情况及下一步。普通问题、设想或请求解释返回 isRequirement=false；只有明确要求更改此课题后续工作的指示返回 true。含糊时先追问。明确指令将按研究者原话加入之后 CC 和 CX 的输入，较新要求修订冲突的旧要求。明确区分“已记录”和“已执行”。进行中的调用不会被改写。不要声称已运行实验、已调整队列或已更改配置，实际进展以项目记录为准。原有问卷、人工确认与授权边界继续适用。\n项目状态：${JSON.stringify(context)}\n本条类型：${turn.mode==='requirement'?'研究者已将此条设为课题要求':'普通对话，判断是否包含明确的新要求'}\n研究者：${turn.message}`;
+    const prompt=`你是当前课题的总控 CC。直接与研究者对话，结合以下真实状态回答，必要时使用只读工具核对证据。简洁说明目前情况及下一步。普通问题、设想或请求解释返回 isRequirement=false；只有明确要求更改此课题后续工作的指示返回 true。含糊时先追问。明确指令将按研究者原话加入之后 CC 和 CX 的输入，较新要求修订冲突的旧要求。明确区分“已记录”和“已执行”。进行中的调用不会被改写。不要声称已运行实验、已调整队列或已更改配置，实际进展以项目记录为准。已确认研究方向与用户明确约束继续适用。常规安排说明做什么和理由后直接推进，不生成问卷、不要求逐项批阅；日常执行不反复请示；提案、实验结果与论文需要三位委员全票通过，再由用户审核才能出环。待用户审核时说明正在等待用户，不要声称可自动进入下一阶段。新的权限、额外预算或无法自行获取的必要材料仍需研究者判断。\n项目状态：${JSON.stringify(context)}\n本条类型：${turn.mode==='requirement'?'研究者已将此条设为课题要求':'普通对话，判断是否包含明确的新要求'}\n研究者：${turn.message}`;
     const {runner,store}=this.flow;
     const result=await runner.run({projectId:p.id,provider:'cc',kind:'control-chat',controlTurnId:turn.id,title:'CC 总控 · 回复研究者',executable:this.flow.cli('cc'),cwd:store.folder(p.id),sessionId:p.steering.sessionId||undefined,prompt,schema});
     if(runner.closing||turn.status!=='replying')return;

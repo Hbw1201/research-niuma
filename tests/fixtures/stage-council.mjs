@@ -1,7 +1,7 @@
 export function stageResult(args,p,{alwaysPass=false,askUser=false}={}){
-  const r=p.stageReviews.find(x=>x.id===args.reviewRoundId),needsFix=!alwaysPass&&r.number===1;
+  const r=p.stageReviews.find(x=>x.id===args.reviewRoundId),needsFix=Boolean(r.userRevision)||!alwaysPass&&r.number===1;
   if(args.kind==='stage-independent')return {summary:'检查本轮实际报告与证据',strengths:['有可检查的报告'],concerns:needsFix?[{title:'补齐验证证据',severity:'major',reason:'目前报告未提供独立验证',recommendation:'补充验证记录与修改位置'}]:[],verdict:needsFix?'revise':'ready'};
-  const issues=r.reviewers.flatMap(m=>(m.independent.data?.concerns||[]));
+  const issues=[...r.reviewers.flatMap(m=>(m.independent.data?.concerns||[])),...(r.userRevision?[r.userRevision]:[])];
   if(args.kind==='stage-cross')return {summary:'已比较其他两位评委的意见',direction:needsFix?'先补齐证据再复审':'本轮材料满足检查标准',responses:r.reviewers.filter(m=>m.id!==args.reviewerId).flatMap(m=>m.independent.data.concerns).map(i=>({issueId:i.id,position:'agree',reason:'证据要求合理',suggestion:'记录可复现的验证过程'}))};
   if(args.kind==='stage-synthesis')return {summary:needsFix?'安排 CX 修改后复审':'三位评委认可当前材料',assessment:needsFix?(askUser?'blocked':'retry'):'passed',evidence:'测试目录中的实际报告',reason:'依据三位评委意见',decision:needsFix?(askUser?'ask_user':'continue'):'finish',question:askUser?'是否批准这组修改任务？':'',handoff:'逐条修改并附上证据位置',dispositions:issues.map(i=>({issueId:i.id,action:'fix',reason:'补齐当前证据缺口'})),nextTasks:needsFix?[{title:r.kind==='results'?'补齐实验验证':'修订论文初稿',instructions:'读取前轮报告，在当前 CX 目录生成修订文件并提供证据',acceptance:'逐条列出修改与验证记录',workerId:p.architecture.workers.find(w=>w.active!==false).id,questionIds:['q1'],dependsOn:[r.source.evidence.at(-1).taskId],researchStage:r.kind==='results'?'analysis':'writing',relation:'retry',issueIds:issues.map(i=>i.id)}]:[]};
   throw Error('Unexpected stage call '+args.kind);

@@ -1,0 +1,25 @@
+const statuses={pending:'待开展',running:'进行中',completed:'已完成',ready:'可开始实施',blocked:'缺少依据',failed:'失败 / 可重试',interrupted:'已中断 / 可继续'};
+const categories={classic:'经典方法',recent:'近期方法',reference:'参考论文对照'};
+export const benchmarkCurrent=p=>{const r=p.benchmarkResearch?.runs?.at(-1);return Boolean(r&&r.goal===p.brief&&r.title===p.title&&r.requirementsRevision===(p.steering?.revision||0)&&r.revision===(p.benchmarkResearch?.revision||0));};
+export function benchmarkSummary(c,section='all'){
+ const {p,panel,esc,button,busy}=c,r=p.benchmarkResearch?.runs?.at(-1),current=benchmarkCurrent(p),l=r?.literature?.data,b=r?.protocol?.data;
+ const actions=step=>step?.documentId?button('doc','查看 Markdown','',`data-id="${esc(step.documentId)}"`):'';
+ const state=r?(current?statuses[r.status]||r.status:'要求已更新，待重新调研'):'执行前自动开展';
+ const body=`<div class="panel-body"><p><strong>${esc(state)}</strong>${r?` · 第 ${r.number} 版`:''}</p><p class="hint">先读相关原文，整理经典方法、近期方法和论文使用的 baseline，再确定如何公平地衡量性能。CC 说明依据后安排实现，无需填写问卷。</p>
+ ${r?.error||r?.status==='blocked'?`<p class="work-notice">${esc(r.error||r.reason)}</p>`:''}
+ ${section!=='benchmark'?`<details${section==='literature'||r&&r.status!=='ready'?' open':''}><summary>1. 文献与方法对照 · ${esc(statuses[r?.literature?.status]||'待开展')}</summary>
+ ${l?`<p class="message-text">${esc(l.summary)}</p><p class="hint">${esc(l.searchScope)}<br>${esc(l.coverage)}</p>${l.methods.map(m=>`<article class="proposal-item"><strong>${esc(m.name)}</strong> · ${esc(categories[m.category])}<p>在原论文中：${m.role==='baseline'?'比较对象':'所提方法'} · 来源 ${esc(m.paperIds.join('、'))}</p><p class="message-text">${esc(m.paperBenchmark)}</p><p class="hint">实现：${esc(m.implementation)}<br>适用限制：${esc(m.limitations)}</p></article>`).join('')}
+ <details><summary>原文来源与读取范围（CC 报告）</summary>${l.papers.map(s=>`<p><strong>${esc(s.id)} · ${esc(s.title)} (${s.year})</strong><br><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">打开原文</a> · ${esc({fulltext:'读到相关全文',abstract:'仅摘要',unavailable:'未读取'}[s.access])}<br>${esc(s.location)}<br>${esc(s.evidence)}</p>`).join('')}</details>${l.gaps.length?`<p class="hint">待核实：${esc(l.gaps.join('；'))}</p>`:''}${actions(r.literature)}`:'<p class="hint">CC 将记录论文来源、原文位置、比较对象和原论文的实验设置；无法读取的内容会标为缺口。</p>'}</details>`:''}
+ ${section!=='literature'?`<details${section==='benchmark'||b&&r.status!=='ready'?' open':''}><summary>2. Baseline 与性能衡量 · ${esc(statuses[r?.protocol?.status]||'待开展')}</summary>
+ ${b?`<p class="message-text">${esc(b.summary)}</p><p>选择理由：${esc(b.rationale)}</p>${b.baselines.map(x=>`<p><strong>${esc(l?.methods.find(m=>m.id===x.methodId)?.name||x.methodId)}</strong> · ${esc(x.reason)}<br><span class="hint">实现：${esc(x.implementation)}；适配：${esc(x.adaptation)}</span></p>`).join('')}
+ ${b.metrics.map(m=>`<p><strong>${m.primary?'主指标':'辅助指标'} · ${esc(m.name)}</strong> · ${esc({higher:'越高越好',lower:'越低越好',target:'达到指定目标'}[m.direction])}<br>${esc(m.definition)}<br>统计单位与汇总：${esc(m.aggregation)}<br><span class="hint">${esc(m.reason)} · 来源 ${esc(m.paperIds.join('、'))}</span></p>`).join('')}
+ <p>数据划分：${esc(b.dataset.split)}<br>防泄漏：${esc(b.dataset.leakageControls)}</p><p>公平条件：${esc(b.protocol.tuning)}<br>重复与不确定性：${esc(b.protocol.repetitions)}；${esc(b.protocol.uncertainty)}</p><p>判断标准：${esc(b.protocol.successCriteria)}<br>失败与停止：${esc(b.protocol.failureCriteria)}</p>${b.limitations.length?`<p class="hint">限制：${esc(b.limitations.join('；'))}</p>`:''}${actions(r.protocol)}`:'<p class="hint">明确比较方法、主/辅助指标、数据划分、防泄漏、训练与调参预算、重复试验及成功/失败标准。</p>'}</details>`:''}
+ <div class="actions section-gap">${button('benchmark-refresh',r?'重新调研并更新评测方案':'仅开展文献与评测准备','',busy(p)||!p.intakeConfirmed||!c.state.scan?.clis?.cc?.available?'disabled':'')}</div><p class="hint">旧版本和结果保留。更新后再继续研究，CC 会检查已有结果是否需要重跑；论文报告值与本地复跑值分开记录。</p></div>`;
+ return panel('研究依据 / 先确定怎么比较',body);
+}
+export function benchmarkNodes(p){
+ const runs=p.benchmarkResearch?.runs||[];
+ if(!runs.length)return ['literature','protocol'].map((phase,i)=>({id:'benchmark-pending-'+phase,title:i?'确定 Baseline 与性能衡量':'调研经典、近期方法与论文对照',owner:'CC',kind:'feedback',status:'pending',parents:[i?'benchmark-pending-literature':'brief'],benchmarkStages:[i?'benchmark':'literature'],detail:i?'依据已读原文形成评测协议，再安排实现。':'提取真实论文来源、方法与实验设置，不把未读内容当作已核实。'}));
+ return runs.flatMap(r=>['literature','protocol'].map((phase,i)=>{const s=r[phase],stale=r===runs.at(-1)&&!benchmarkCurrent(p);return {id:`benchmark-${r.id}-${phase}`,title:`${i?'Baseline 与性能衡量':'文献与方法对照'} · 第 ${r.number} 版`,owner:'CC',kind:'feedback',status:stale?'superseded':s.status==='completed'?'returned':s.status,parents:[i?`benchmark-${r.id}-literature`:'brief'],benchmarkStages:[i?'benchmark':'literature'],detail:(s.data?.summary||r.error||r.reason||'等待 CC 完成此步骤。')+(stale?'\n研究要求已变化，此版本保留为历史记录。':''),benchmark:{...s,runId:r.id}};}));
+}
+export function benchmarkNodeDetails(c,n){const {esc,button}=c,s=n.benchmark;return `<div class="actions">${s.documentId?button('doc','依据与方案 MD','',`data-id="${esc(s.documentId)}"`):''}${s.jobId?button('log','CC 调研日志','',`data-id="${esc(s.jobId)}"`):''}</div>`;}

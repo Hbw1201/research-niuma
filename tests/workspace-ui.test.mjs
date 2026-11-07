@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { graphData } from '../public/pipeline-ui.js';
+import { graphData,collaborationPage } from '../public/pipeline-ui.js';
 import { phaseOf } from '../public/workspace-ui.js';
 
 test('stage filters keep the actual review and independent prerequisites of a follow-up', () => {
@@ -29,4 +29,15 @@ test('the workspace points to a pending human decision or completed evidence for
   p.intakeConfirmed=false;
   p.proposal={};
   assert.deepEqual([phaseOf(p).step,phaseOf(p).attention],[0,true]);
+});
+
+test('the simplified overview keeps required human decisions visible and does not offer to bypass them',()=>{
+  const p={id:'p',title:'Fixture',brief:'Test',intakeConfirmed:true,status:'awaiting_decision',autonomy:{mode:'auto'},questions:[],tasks:[],architecture:{confirmed:true,workers:[]},collaboration:{reviews:[],messages:[],pendingDecision:{id:'decision',question:'Confirm access to the missing fixture data'}}};
+  const esc=s=>String(s??'').replaceAll('<','&lt;'),c={p,state:{jobs:[],scan:{clis:{cc:{available:true},cx:{available:true}}}},esc,panel:(t,b)=>`<section>${t}${b}</section>`,button:(a,t,cl='',extra='')=>`<button data-action="${a}" ${extra}>${t}</button>`,busy:()=>false,noProject:()=>''};
+  const page=collaborationPage(c);
+  assert.match(page,/id="research-decision"[\s\S]*id="decision-form"/);
+  assert.match(page,/Confirm access to the missing fixture data/);
+  assert.doesNotMatch(page,/id="collaborate-form"/);
+  assert(page.indexOf('id="decision-form"')<page.indexOf('<details'));
+  assert.match(page,/data-action="control-chat"/);
 });

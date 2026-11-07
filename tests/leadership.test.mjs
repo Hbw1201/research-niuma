@@ -1,3 +1,4 @@
+import {seedBenchmark,benchmarkResponse} from './fixtures/benchmark-research.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -12,7 +13,7 @@ import {stageResult} from './fixtures/stage-council.mjs';
 
 function fixture(t){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'niuma-leader-')),store=new Store(root),p=store.newProject({title:'Autonomous fixture',brief:'Compare approaches and deliver an evidence-based analysis.'}),runner=new Runner(store),flow=new Workflow(store,runner,()=>({clis:{cc:{available:true,path:'cc'},cx:{available:true,path:'cx'}}}));
-  p.questions=[{id:'q1',decision:'approved',answer:'Approved fixture scope'}];p.architecture.confirmed=false;
+  seedBenchmark(p,store);p.questions=[{id:'q1',decision:'approved',answer:'Approved fixture scope'}];p.architecture.confirmed=false;
   flow.models=()=>({cx:[{id:'small'},{id:'large'}],defaults:{cx:'small'}});flow.catalog=()=>[];
   t.after(async()=>{await runner.close();store.close();assert(fs.realpathSync(root).startsWith(fs.realpathSync(os.tmpdir())+path.sep));fs.rmSync(root,{recursive:true,force:true});});return{root,store,p,runner,flow};
 }
@@ -32,6 +33,7 @@ test('leader chooses team, adds CX after results, changes models, archives used 
   const {p,store,runner,flow}=fixture(t);let organizations=0,executions=0,checkpoints=0;const calls=[];
   runner.run=async args=>{
     calls.push(args);
+    if(args.kind==='mentor-meeting')return answer(args,benchmarkResponse(args.kind));
     if(args.kind.startsWith('stage-'))return {job:{id:args.id,sessionId:args.sessionId||(args.reviewerId==='cc'?'mentor':'reviewer-'+args.reviewerId)},structured:stageResult(args,p,{alwaysPass:true})};
     if(args.kind==='leadership'){
       organizations++;
@@ -39,7 +41,7 @@ test('leader chooses team, adds CX after results, changes models, archives used 
       if(organizations===2)return answer(args,team(p,[...activeWorkers(p).map(w=>config(w)),config({id:'',role:'Independent validator'},{model:'large'})],2));
       return answer(args,team(p,[config(activeWorkers(p).at(-1),{model:'large'})]));
     }
-    if(args.kind==='plan')return answer(args,{summary:'Pilot first',tasks:[task(activeWorkers(p)[0].id)]});
+    if(args.kind==='plan')return answer(args,{summary:'Pilot first',rationale:'Check baseline evidence before scaling',tasks:[task(activeWorkers(p)[0].id)]});
     if(args.kind==='model-selection')return answer(args,{model:executions?'large':'small',reason:'Use pilot evidence and task complexity'});
     if(args.kind==='execution'){executions++;return answer(args);}
     assert.equal(args.kind,'feedback');
@@ -50,6 +52,7 @@ test('leader chooses team, adds CX after results, changes models, archives used 
     return answer(args,executions===1?feedback({assessment:'retry',decision:'continue',nextTasks:[task(activeWorkers(p).at(-1).id,{relation:'alternative',dependsOn:[p.tasks[0].id]})]}):feedback());
   };
   await flow.collaborate(p.id);
+  assert.equal(p.status,'awaiting_decision');await flow.collaboration.decide(p.id,{decisionId:p.collaboration.pendingDecision.id,action:'approve',message:''});
   assert.equal(p.error,'');assert.equal(p.status,'cycle_complete');assert.equal(executions,3);assert.equal(checkpoints,2);
   assert.equal(p.tasks[2].researchStage,'analysis');assert.deepEqual(p.tasks.map(t=>t.model),['small','large','large']);
   assert.equal(activeWorkers(p).length,1);assert(p.architecture.workers.find(w=>w.id==='cx-1').sessionId);assert.equal(p.architecture.workers.find(w=>w.id==='cx-1').active,false);
@@ -91,14 +94,14 @@ test('stopping during leader planning prevents late team changes, task creation 
 
 test('budget pauses Auto Research with its next step intact, then continues without rerunning previous CX work',async t=>{
   const {p,flow,runner}=fixture(t);let executions=0,reviewCount=0;
-  runner.run=async args=>{if(args.kind==='leadership')return answer(args,team(p));if(args.kind==='plan')return answer(args,{summary:'First',tasks:[task('cx-1')]});if(args.kind==='model-selection')return answer(args,{model:'small',reason:'fixture'});if(args.kind==='execution'){executions++;return answer(args);}return answer(args,++reviewCount===1?feedback({decision:'continue',nextTasks:[task('cx-1',{dependsOn:[p.tasks[0].id],relation:'next'})]}):feedback());};
-  await flow.collaborate(p.id,{maxReviews:1});assert.equal(executions,1);assert.equal(p.status,'paused');assert.equal(p.tasks[1].status,'ready');
+  runner.run=async args=>{if(args.kind==='mentor-meeting')return answer(args,benchmarkResponse(args.kind));if(args.kind==='leadership')return answer(args,team(p));if(args.kind==='plan')return answer(args,{summary:'First',rationale:'Validate the initial research step',tasks:[task('cx-1')]});if(args.kind==='model-selection')return answer(args,{model:'small',reason:'fixture'});if(args.kind==='execution'){executions++;return answer(args);}return answer(args,++reviewCount===1?feedback({decision:'continue',nextTasks:[task('cx-1',{dependsOn:[p.tasks[0].id],relation:'next'})]}):feedback());};
+  await flow.collaborate(p.id,{maxReviews:2});assert.equal(executions,1);assert.equal(p.status,'paused');assert.equal(p.tasks[1].status,'ready');
   await flow.collaborate(p.id,{maxReviews:10});assert.equal(executions,2);assert.equal(p.status,'cycle_complete');
 });
 
 test('Auto Research still presents a real external blocker to the researcher and resumes after the answer',async t=>{
   const {p,flow,runner}=fixture(t);let executions=0,asked=false;
-  runner.run=async args=>{if(args.kind==='leadership')return answer(args,team(p));if(args.kind==='plan')return answer(args,{summary:'First',tasks:[task('cx-1')]});if(args.kind==='model-selection')return answer(args,{model:'small',reason:'fixture'});if(args.kind==='execution'){executions++;return answer(args);}if(!asked){asked=true;return answer(args,feedback({assessment:'blocked',decision:'ask_user',question:'Please provide access to the missing fixture dataset.',nextTasks:[task('cx-1',{dependsOn:[p.tasks[0].id],relation:'next'})]}));}return answer(args,feedback());};
+  runner.run=async args=>{if(args.kind==='mentor-meeting')return answer(args,benchmarkResponse(args.kind));if(args.kind==='leadership')return answer(args,team(p));if(args.kind==='plan')return answer(args,{summary:'First',rationale:'Validate the initial research step',tasks:[task('cx-1')]});if(args.kind==='model-selection')return answer(args,{model:'small',reason:'fixture'});if(args.kind==='execution'){executions++;return answer(args);}if(!asked){asked=true;return answer(args,feedback({assessment:'blocked',decision:'ask_user',question:'Please provide access to the missing fixture dataset.',nextTasks:[task('cx-1',{dependsOn:[p.tasks[0].id],relation:'next'})]}));}return answer(args,feedback());};
   await flow.collaborate(p.id);assert.equal(p.status,'awaiting_decision');assert.equal(executions,1);
   await flow.collaboration.decide(p.id,{decisionId:p.collaboration.pendingDecision.id,action:'approve',message:'The required fixture dataset is now available.'});assert.equal(executions,2);assert.equal(p.status,'cycle_complete');
 });

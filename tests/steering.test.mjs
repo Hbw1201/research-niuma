@@ -1,3 +1,4 @@
+import {seedBenchmark,benchmarkResponse} from './fixtures/benchmark-research.mjs';
 import {controlPreview} from '../src/steering.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,7 +12,7 @@ import {Workflow} from '../src/workflow.mjs';
 function fixture(t){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'research-control-'));
   const store=new Store(root),p=store.newProject({title:'Control fixture',brief:'Compare two baselines'});
-  const runner=new Runner(store),cli={available:true,path:process.execPath};
+seedBenchmark(p,store);  const runner=new Runner(store),cli={available:true,path:process.execPath};
   const flow=new Workflow(store,runner,()=>({clis:{cc:cli,cx:cli}}));
   t.after(async()=>{await runner.close();store.close();fs.rmSync(root,{recursive:true,force:true});});
   return {root,store,p,runner,flow,channel:flow.steering};
@@ -61,6 +62,7 @@ test('auto research recomputes the team before dispatching again after a control
   flow.models=()=>({cx:[]});flow.catalog=()=>[];
   runner.run=async a=>{
     calls.push(a.kind);
+    if(benchmarkResponse(a.kind))return {job:{id:a.kind},structured:benchmarkResponse(a.kind)};
     if(a.kind==='execution'){if(a.taskId==='t1'){started.resolve();await held.promise;}return{job:{id:a.taskId},text:'report'};}
     if(a.kind==='control-chat')return answer('chat','Changed',true);
     if(a.kind==='leadership'){
@@ -73,8 +75,10 @@ test('auto research recomputes the team before dispatching again after a control
   channel.submit(p.id,{message:'New baseline requirement',mode:'requirement'});await channel.active.get(p.id);
   await new Promise(r=>setTimeout(r,130));
   assert.equal(calls.filter(x=>x==='execution').length,1);
-  assert.ok(calls.lastIndexOf('leadership')>calls.indexOf('control-chat'));
-  held.resolve();await run;assert.equal(p.status,'cycle_complete');
+  assert.equal(calls.filter(x=>x==='literature-research').length,0); // Let the in-flight old-protocol report return first.
+  held.resolve();await run;assert.equal(p.status,'cycle_complete',p.error);
+  assert.ok(calls.indexOf('literature-research')>calls.indexOf('control-chat'));
+  assert.ok(calls.lastIndexOf('leadership')>calls.indexOf('benchmark-design'));
   assert.equal(calls.filter(x=>x==='execution').length,2);
 });
 

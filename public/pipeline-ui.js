@@ -1,4 +1,8 @@
-import {councilNodes,stageCouncilSummary,councilNodeDetails} from './stage-council-ui.js';
+import {mentorPanel,meetingNodes,meetingDetails} from './mentor-ui.js';
+import {pipelineOverview,mapStages} from './pipeline-map.js';
+export {pipelinePage} from './pipeline-map.js';
+import {benchmarkSummary,benchmarkNodes,benchmarkNodeDetails,benchmarkCurrent} from './benchmark-ui.js';
+import {councilNodes,stageCouncilSummary,councilNodeDetails,decisionPanel} from './stage-council-ui.js';
 import {researchStages} from './research-stages.js';
 import {usagePanel} from './team-ui.js';
 const stageName=id=>researchStages.find(s=>s.id===id)?.title||'历史任务 / 未分类';
@@ -6,68 +10,51 @@ const relations={retry:'修正重试',alternative:'替代方案',next:'推进下
 const assessments={passed:'CC 复核通过',retry:'需要调整',blocked:'等待材料或决策'};
 
 export function collaborationPage(c) {
-  const {p,state,panel,esc,button,busy,badge,noProject}=c;
-  if(!p)return noProject();
-  const co=p.collaboration,auto=p.autonomy?.mode==='auto';
-  const jobs=state.jobs.filter(j=>j.projectId===p.id);
-  const active=jobs.filter(j=>['running','queued','cancelling'].includes(j.status));
-  const last=co.reviews.at(-1),pending=co.pendingDecision;
-  const reviewed=p.questions.length>0&&p.questions.every(q=>['approved','rejected'].includes(q.decision))&&p.questions.some(q=>q.decision==='approved');
-  const ccReady=state.scan?.clis?.cc?.available;
-  let next;
-  if(busy(p)) {
-    next=`<div class="status-banner"><div><strong>${esc(c.label(p.status))}</strong><p>${esc(active[0]?.title||'等待本轮调用返回。')}</p></div>${button('stop-project','停止本轮','danger')}</div>`;
-  } else if(pending) {
-    next=panel('CC 需要你的判断',`<form id="decision-form" data-decision="${esc(pending.id)}" class="panel-body"><p class="message-text">${esc(pending.question)}</p>
-      ${last?.nextTasks?.length?`<details><summary>查看拟执行的步骤（${last.nextTasks.length}）</summary>${last.nextTasks.map(t=>`<p class="proposal-item"><strong>${esc(t.title)}</strong><br>${esc(t.instructions)}<br>验收 · ${esc(t.acceptance)}</p>`).join('')}</details>`:''}
-      <label class="field section-gap"><span>你的决定或补充材料</span><textarea name="message" required maxlength="20000" rows="2"></textarea></label>
-      <div class="actions"><button class="primary" name="action" value="approve">确认并继续</button><button name="action" value="revise">请 CC 调整</button></div></form>`);
-  } else if(!p.questions.length && !p.tasks.length) {
-    next=`<div class="next-action"><strong>下一步 · 形成研究方案</strong><p>CC 将把研究设计中需要你决定的问题整理成问卷。</p>${ccReady?button('brainstorm','请 CC 生成问卷','primary'):'<button type="button" data-view="settings">检查 CC 连接</button>'}</div>`;
-  } else if(!reviewed && !p.tasks.length) {
-    const count=p.questions.filter(q=>['approved','rejected'].includes(q.decision)).length;
-    next=`<div class="next-action"><strong>研究问卷待批阅</strong><p>已确定 ${count} / ${p.questions.length} 项。批阅后即可交给团队执行。</p>${button('goto-review','打开研究问卷','primary')}</div>`;
-  } else if(!auto && !p.architecture.confirmed) {
-    next=`<div class="next-action"><strong>确认团队分工</strong><p>当前使用辅助模式。与 CC 讨论成员职责后，保存团队分工即可执行。</p>${button('goto-architecture','进入团队','primary')}</div>`;
-  } else {
-    const complete=co.state==='completed'||['completed','cycle_complete'].includes(p.status);
-    const resume=Boolean(p.tasks.length)||['paused','failed','interrupted'].includes(p.status);
-    const controls=`<form id="collaborate-form" class="next-action"><strong>${complete?'继续下一轮':resume?'从上次进展继续':'开始研究执行'}</strong>
-      <p>${esc(co.pauseReason||(auto?'CC 将按获批方案组队、派工，并在 CX 回报后复核。':'CC 将按已确认的团队分工执行方案。'))}</p>
-      <div class="loop-controls"><button class="primary" type="submit">${resume?'继续研究':'开始执行'}</button>
-      <details><summary>本轮上限</summary><label class="field"><span>最多自动复核次数</span><input type="number" required name="maxReviews" min="1" max="1000" value="${auto?p.autonomy.maxReviews:co.maxReviews||8}"></label></details></div></form>`;
-    next=complete?`<details class="disclosure"><summary>继续此课题</summary>${controls}</details>`:controls;
-  }
-  const feedback=last?panel(last.checkpoint?'CC 的整项研究复核':'最近一次 CC 反馈',`<div class="recent-feedback"><strong>${esc(last.summary)}</strong><details><summary>查看证据与判断依据</summary><p>${esc(last.evidence)}</p><p>${esc(last.reason)}</p></details>${last.documentId?button('doc','打开反馈文档','',`data-id="${esc(last.documentId)}"`):''}</div>`):'';
-  const feed=co.messages.slice(-80).map(m=>`<article class="message"><div class="message-who"><strong class="${m.from==='CC'?'amber':m.from==='研究者'?'green':'cyan'}">${esc(m.from)} → ${esc(m.to)}</strong><time>${new Date(m.at).toLocaleTimeString('zh-CN',{hour12:false})}</time></div><div class="message-text">${esc(m.content)}</div>
-    ${m.documentId?button('doc','交接文档','',`data-id="${esc(m.documentId)}"`):''}${m.kind==='user'?`<small class="hint">${m.seenAt?'CC 已读取':'等待 CC 在复核时读取'}</small>`:''}</article>`).join('');
-  const stream=panel('团队通信',`<div class="conversation collaboration-messages">${feed||'<p class="hint">执行开始后，这里会显示 CC 的派工、CX 的回报和 CC 的复核。</p>'}</div><div class="panel-body">${button('control-chat','与 CC 实时对话')}</div>`);
-  const context=panel('课题记录',`<div class="panel-body"><div class="actions">${p.questions.length?button('goto-review','查看问卷'):''}${p.tasks.length?button('goto-execution','查看 '+p.tasks.length+' 项任务'):''}${button('goto-mentor','立项讨论')}</div></div>`);
-  const running=active.length?panel('当前调用',active.map(j=>`<div class="panel-body"><strong>${esc(j.title)}</strong> ${badge(j.status)}<p class="hint">${esc(j.log.at(-1)||'等待 CLI 输出…')}</p>${button('log','查看日志','',`data-id="${esc(j.id)}"`)}</div>`).join('')):'';
-  return `${p.proposalReviews?.length||p.proposal&&!p.tasks.length?'<div class="actions section-gap"><button type="button" data-view="mentor">提案与评委会</button></div>':''}${p.error?`<div class="work-notice">${esc(p.error)}</div>`:''}${next}${feedback}${p.stageReviews?.length?'<div class="actions section-gap"><button type="button" data-view="pipeline">查看三位评委的评审、修改与复审轨迹</button></div>':''}<div class="collaboration-layout section-gap"><section>${stream}</section><aside>${running}${context}<details class="disclosure"><summary>CC 与 CX 的 Token 用量</summary>${usagePanel(c,jobs)}</details></aside></div>`;
+ const {p,state,panel,esc,button,busy,noProject}=c;if(!p)return noProject();
+ const co=p.collaboration,auto=p.autonomy?.mode==='auto',jobs=state.jobs.filter(j=>j.projectId===p.id),active=jobs.filter(j=>['running','queued','cancelling'].includes(j.status));
+ const overview=pipelineOverview(p,jobs),stage=overview.currentIds[0]||'question',pending=co.pendingDecision,complete=co.state==='completed'||['completed','cycle_complete'].includes(p.status);
+ const resume=Boolean(p.tasks.length)||['paused','failed','interrupted'].includes(p.status),last=co.reviews.at(-1),meeting=p.mentorMeetings?.filter(m=>m.status==='completed').at(-1);
+ const cut=(s,n=180)=>{s=String(s||'');return s.length>n?s.slice(0,n)+'…':s;};
+ let title,description,action;
+ if(busy(p)){title='研究进行中';description=active[0]?.title||'CC 正在安排下一步工作。';action=button('stop-project','暂停研究');}
+ else if(pending){title='有一项决定需要你';description=pending.type==='stage-approval'?'三位委员已通过，请审核当前材料。':'CC 需要你的意见，才能继续推进。';action=button('reveal-panel','查看并回复','primary','data-id="research-decision"');}
+ else if(!p.intakeConfirmed){title='先和导师明确研究方向';description='说说你的想法，CC 会帮你完善研究方案。';action=button('goto-mentor','讨论研究方向','primary');}
+ else if(!state.scan?.clis?.cc?.available||!state.scan?.clis?.cx?.available){title='连接你的研究助手';description='连接本机 Claude Code 和 Codex 后即可开始。';action='<button type="button" class="primary" data-view="settings">连接设置</button>';}
+ else if(!auto&&!p.architecture.confirmed){title='先确定团队分工';description='确认 CX 的数量和职责，或让 CC 自主安排。';action=button('goto-architecture','设置团队','primary');}
+ else{title=complete?'这一轮已完成':resume?'继续这项研究':'从第一步开始';description=complete?'查看导师判断，也可以继续讨论和补充要求。':cut(co.pauseReason||'CC 会先说明安排，再组织团队执行并逐步汇报。');action='<form id="collaborate-form"><button class="primary" type="submit">'+(resume||complete?'继续研究':'开始研究')+'</button><details class="run-options"><summary>运行选项</summary><label class="field"><span>本轮最多复核次数</span><input type="number" name="maxReviews" required min="1" max="1000" value="'+(auto?p.autonomy.maxReviews:co.maxReviews||8)+'"></label></details></form>';}
+ const primary='<section class="research-focus" aria-label="当前研究与下一步"><div class="focus-label"><span class="status-dot '+(busy(p)?'active':'')+'"></span>当前步骤 · '+esc(overview.currentLabel)+'</div><h2>'+title+'</h2><p>'+esc(description)+'</p><div class="focus-actions">'+action+button('control-chat','和 CC 聊聊','quiet-button')+'</div></section>';
+ const latest=[last&&{summary:last.summary,detail:last.reason,documentId:last.documentId,at:last.at},meeting&&{summary:meeting.data.summary,detail:meeting.data.direction,documentId:meeting.documentId,at:meeting.completedAt}].filter(Boolean).sort((a,b)=>String(a.at||'').localeCompare(String(b.at||''))).at(-1);
+ const focusReport='<section class="overview-note"><div class="section-label">导师最新判断</div><h3>'+esc(latest?cut(latest.summary,85):'每一步，都和导师对齐方向')+'</h3><p>'+esc(latest?cut(latest.detail):'完成一步后，CC 核对证据并决定继续或修改。汇报和判断会保存在这里。')+'</p>'+(latest?.documentId?button('doc','查看完整汇报 →','quiet-button','data-id="'+esc(latest.documentId)+'"'):button('open-stage','查看当前步骤 →','quiet-button','data-id="'+esc(stage)+'"'))+'</section>';
+ const notice=p.executionPlan?'<details class="simple-disclosure"><summary>CC 的执行安排</summary><div class="detail-body"><h3>接下来做什么</h3><p class="message-text">'+esc(p.executionPlan.summary)+'</p><h3>为什么这样做</h3><p class="message-text">'+esc(p.executionPlan.rationale)+'</p>'+button('doc','完整执行说明','quiet-button','data-id="'+esc(p.executionPlan.documentId)+'"')+'</div></details>':'';
+ const activity=co.messages.filter(m=>!['feedback','reviewing','mentor-meeting','leadership'].includes(m.kind)).slice(-3).reverse().map(m=>'<article class="activity-row"><span class="activity-mark">'+esc(m.from.startsWith('CX')?'CX':m.from.includes('CC')?'CC':'你')+'</span><div><div class="activity-meta"><strong>'+esc(m.from)+'</strong><time>'+new Date(m.at).toLocaleTimeString('zh-CN',{hour12:false,hour:'2-digit',minute:'2-digit'})+'</time></div><p>'+esc(cut(String(m.content||'').replace(/^#{1,6}\s+/gm,'').replace(/\*\*/g,''),135))+'</p>'+(m.documentId?button('doc','查看记录','quiet-button','data-id="'+esc(m.documentId)+'"'):'')+'</div></article>').join('');
+ const feed=co.messages.slice(-80).map(m=>'<article class="message"><div class="message-who"><strong>'+esc(m.from)+' → '+esc(m.to)+'</strong><time>'+new Date(m.at).toLocaleString('zh-CN',{hour12:false})+'</time></div><div class="message-text">'+esc(m.content)+'</div>'+(m.documentId?button('doc','查看文档','quiet-button','data-id="'+esc(m.documentId)+'"'):'')+'</article>').join('');
+ const recent='<section class="activity-section"><div class="section-heading"><h2>最近动态</h2>'+button('goto-pipeline','查看研究流程 →','quiet-button')+'</div>'+(activity||'<div class="empty-activity">还没有执行记录。研究开始后，这里会显示团队的最新进展。</div>')+'</section>';
+ const records='<div class="research-records">'+notice+'<details class="simple-disclosure"><summary>研究依据与评测方案</summary>'+benchmarkSummary(c)+'</details><details class="simple-disclosure"><summary>完整通信记录'+(co.messages.length?' · '+co.messages.length:'')+'</summary><div class="conversation collaboration-messages">'+(feed||'<p class="hint">暂无通信记录。</p>')+'</div></details><details class="simple-disclosure"><summary>用量与运行日志</summary>'+usagePanel(c,jobs)+jobs.slice(0,12).map(j=>'<div class="compact-job"><span>'+esc(j.title)+'</span>'+button('log','日志','quiet-button','data-id="'+esc(j.id)+'"')+'</div>').join('')+'</details></div>';
+ const links='<nav class="secondary-links" aria-label="更多课题内容">'+button('goto-mentor','研究提案','quiet-button')+button('goto-execution','全部任务','quiet-button')+(p.questions.length?button('goto-review','历史决定','quiet-button'):'')+'</nav>';
+ return '<div class="research-overview">'+primary+(pending?'<section id="research-decision" class="decision-area">'+decisionPanel(c)+'</section>':'')+(p.error&&!['interrupted','cancelled'].includes(p.status)?'<p class="work-notice">'+esc(p.error)+'</p>':'')+focusReport+recent+records+links+'</div>';
 }
 
 export function graphData(p,filter='all'){
   const allReviews=p.collaboration?.reviews||[];
-  const approvals=p.questions.length>0&&p.questions.every(q=>['approved','rejected'].includes(q.decision))&&p.questions.some(q=>q.decision==='approved');
-  let nodes=[
-    {id:'brief',title:'确认研究方向',kind:'approval',owner:'研究者',status:p.intakeConfirmed?'approved':'pending',parents:[],detail:p.researchTopic||'研究者与 CC 澄清目标、材料与约束。'},
-    {id:'questionnaire',title:'生成研究问卷',kind:'feedback',owner:'CC',status:p.questions.length?'returned':p.status==='brainstorming'?'running':'pending',parents:['brief'],detail:'CC 组织讨论，形成研究设计问卷。'},
-    {id:'approval',title:'批阅研究方案',kind:'approval',owner:'研究者',status:approvals?'approved':'pending',parents:['questionnaire'],detail:'研究者逐项决定哪些方案可以执行。'}
-  ];
+  const notices=p.executionPlans?.length?p.executionPlans:p.executionPlan?[p.executionPlan]:[];
+  let nodes=[{id:'brief',title:'确认研究方向',kind:'approval',owner:'研究者',status:p.intakeConfirmed?'approved':'pending',parents:[],detail:p.researchTopic||'研究者与 CC 澄清目标、材料与约束。'}];
+  const evidenceNodes=benchmarkNodes(p);nodes.push(...evidenceNodes);
+  const benchmarkParent=id=>id&&evidenceNodes.some(n=>n.id===`benchmark-${id}-protocol`)?`benchmark-${id}-protocol`:evidenceNodes.at(-1)?.id||'brief';
+  for(const n of notices)nodes.push({id:'plan-'+n.id,title:'CC 说明执行安排与理由',kind:'feedback',owner:'CC',status:'returned',parents:[n.benchmarkRunId?benchmarkParent(n.benchmarkRunId):'brief'],detail:n.summary+'\n\n为什么这样做：\n'+n.rationale,notice:n});
+  if(!notices.length&&!p.tasks.length)nodes.push({id:'execution-plan',title:'CC 说明安排后推进',kind:'feedback',owner:'CC',status:['collaborating','planning'].includes(p.status)&&p.benchmarkResearch?.runs?.at(-1)?.status==='ready'?'running':'pending',parents:[benchmarkParent()],detail:'说明接下来做什么、为什么这样做和验证方式，随后组织 CX 执行。'});
   const reviewSources=new Map(allReviews.map(r=>[r.id,r.taskId]));
   for(const t of p.tasks){
     const dependencies=(t.dependsOn||[]).filter(id=>!t.parentReviewId||id!==reviewSources.get(t.parentReviewId));
     const parents=[...new Set([...(t.parentReviewId?[t.parentReviewId]:[]),...(t.councilApprovalIds||[]),...dependencies])];
     nodes.push({id:t.id,title:`T${t.index} · ${t.title}`,kind:'task',status:t.status==='completed'?'returned':t.status,
-      parents:parents.length?parents:['approval'],relation:relations[t.relation]||'执行',owner:p.architecture.workers.find(w=>w.id===t.workerId)?.name||'CX',detail:t.instructions||'',task:t});
+      parents:[...new Set([...(parents.length?parents:[notices.find(n=>n.taskIds?.includes(t.id))?'plan-'+notices.find(n=>n.taskIds?.includes(t.id)).id:'brief']),...(t.benchmarkRunId&&!notices.some(n=>n.taskIds?.includes(t.id)&&n.benchmarkRunId===t.benchmarkRunId)?[benchmarkParent(t.benchmarkRunId)]:[])])],relation:relations[t.relation]||'执行',owner:p.architecture.workers.find(w=>w.id===t.workerId)?.name||'CX',detail:t.instructions||'',task:t});
   }
-  for(const r of allReviews.filter(r=>!r.councilRoundId))nodes.push({id:r.id,title:r.checkpoint?'整项研究复核':`复核 T${p.tasks.find(t=>t.id===r.taskId)?.index||'?'} · ${assessments[r.assessment]||r.assessment}`,kind:'feedback',status:r.assessment,parents:[r.taskId],owner:'CC',relation:r.checkpoint?'整体检查':'回报 → 复核',detail:r.summary+'\n\n'+r.reason,review:r});
-  nodes.push(...councilNodes(p));
+  for(const r of allReviews.filter(r=>!r.councilRoundId))nodes.push({id:r.id,title:r.checkpoint?'整项研究复核':`导师组会 T${p.tasks.find(t=>t.id===r.taskId)?.index||'?'} · ${assessments[r.assessment]||r.assessment}`,kind:'feedback',researchStage:p.tasks.find(t=>t.id===r.taskId)?.researchStage||'unclassified',status:r.assessment,parents:[r.taskId],owner:'CC',relation:r.checkpoint?'整体检查':'回报 → 复核',detail:r.summary+'\n\n'+r.reason,review:r});
+  nodes.push(...councilNodes(p),...meetingNodes(p));
   const proposalRound=p.proposalReviews?.at(-1);if(proposalRound)nodes.find(n=>n.id==='brief').parents=[`council-${proposalRound.id}-lead`];
   if(filter!=='all'){
     const ids=new Set(p.tasks.filter(t=>(t.researchStage||'unclassified')===filter).map(t=>t.id));
-    const visible=new Set([...ids,...allReviews.filter(r=>ids.has(r.taskId)).map(r=>r.id),...nodes.filter(n=>n.councilStages?.includes(filter)).map(n=>n.id)]);
+    const visible=new Set([...ids,...allReviews.filter(r=>ids.has(r.taskId)).map(r=>r.id),...nodes.filter(n=>n.researchStage===filter||n.councilStages?.includes(filter)||n.benchmarkStages?.includes(filter)).map(n=>n.id)]);
     const parents=new Set(nodes.filter(n=>visible.has(n.id)).flatMap(n=>n.parents));
     nodes=nodes.filter(n=>visible.has(n.id)||parents.has(n.id));
     for(const n of nodes)if(!visible.has(n.id)){n.context=true;n.parents=[];}
@@ -79,25 +66,36 @@ export function graphData(p,filter='all'){
   const levels=[];for(const n of nodes)(levels[n.depth]||=[]).push(n);
   const width=Math.max(284,...levels.map(l=>(l?.length||0)*276+40));
   for(const level of levels)if(level)level.forEach((n,i)=>{n.x=(width-level.length*276)/2+i*276+8;n.y=n.depth*164+24;});
-  const edges=nodes.flatMap(n=>n.parents.map(id=>({from:map.get(id)||map.get('approval'),to:n,label:n.relation||''}))).filter(e=>e.from!==e.to);
+  const edges=nodes.flatMap(n=>n.parents.map(id=>({from:map.get(id)||map.get('brief'),to:n,label:n.relation||''}))).filter(e=>e.from!==e.to);
   return{nodes,edges,width,height:Math.max(200,levels.length*164+24)};
 }
 
-export function pipelinePage(c,selected='',filter='all',layout='graph'){
-  const {p,head,panel,button,esc,badge,busy,noProject}=c;if(!p)return noProject();
-  const g=graphData(p,filter),chosen=g.nodes.find(n=>n.id===selected),stage=researchStages.find(s=>s.id===filter);
-  const stageStatus=s=>{const council=(p.stageReviews||[]).filter(r=>(s.id==='writing'?r.kind==='manuscript':['experiments','analysis'].includes(s.id)?r.kind==='results':false)).at(-1);if(council&&['running','paused','failed','interrupted','changes_requested','waiting_user'].includes(council.status))return ({running:'三位 CC 评委评审中',paused:'评审暂停 / 可继续',failed:'评审失败 / 可重试',interrupted:'评审中断 / 可继续',changes_requested:'CX 修改后复审',waiting_user:'评审等待研究者判断'}[council.status]);const decision=(p.research?.decisions||[]).filter(d=>d.stageId===s.id).at(-1),tasks=p.tasks.filter(t=>t.researchStage===s.id),changed=tasks.some(t=>(t.createdAt||'')>(decision?.at||'')||(p.collaboration?.reviews||[]).some(r=>r.taskId===t.id&&r.at>(decision?.at||'')));return decision?.action==='confirmed'&&!changed?'研究者已确认':tasks.some(t=>t.status==='running')?'进行中':council?.status==='approved'?'评委会通过 / 待研究判断':tasks.some(t=>t.reportId)?'已有证据 / 待判断':decision?.action==='reopened'?'重新研究':s.id==='question'&&p.intakeConfirmed?'已有初步方向':s.id==='question'&&p.status==='chatting'?'澄清中':s.id==='design'&&p.status==='brainstorming'?'CC 正在梳理设计':s.id==='design'&&p.questions.length?'已有决策问卷':'待开展';};
-  const svg=`<div class="pipeline-canvas" tabindex="0" aria-label="实际执行流程图，可滚动并点击节点"><svg width="${g.width}" height="${g.height}" viewBox="0 0 ${g.width} ${g.height}" role="group" aria-label="真实任务与反馈分支"><defs><marker id="flow-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z"/></marker></defs>${g.edges.map(e=>{const x1=e.from.x+126,y1=e.from.y+112,x2=e.to.x+126,y2=e.to.y;return `<path class="flow-edge ${e.to.task?.relation||''}" marker-end="url(#flow-arrow)" d="M${x1},${y1} C${x1},${y1+26} ${x2},${y2-26} ${x2},${y2}"/><text class="edge-label" x="${x2+8}" y="${y2-8}">${esc(e.label)}</text>`;}).join('')}${g.nodes.map(n=>`<foreignObject x="${n.x}" y="${n.y}" width="252" height="112"><button xmlns="http://www.w3.org/1999/xhtml" class="flow-node ${n.kind} ${n.status} ${chosen?.id===n.id?'selected':''}" data-action="pipeline-node" data-id="${n.id}" aria-label="展开 ${esc(n.title)}"><span class="flow-node-meta">${esc(n.owner||'研究者')}${n.context?' · 前置步骤':''} · ${esc(assessments[n.status]||({returned:'结果已回报'}[n.status])||c.badge(n.status).replace(/<[^>]+>/g,''))}</span><strong>${esc(n.title)}</strong><small>点击展开证据与下一步 ↗</small></button></foreignObject>`).join('')}</svg></div>`;
-  const names=new Map(g.nodes.map(n=>[n.id,n.task?'T'+n.task.index:n.title]));
-  const list=`<ol class="trace-list">${[...g.nodes].sort((a,b)=>a.depth-b.depth).map(n=>{
-    const predecessors=n.parents.map(id=>names.get(id)).filter(Boolean);
-    return `<li><button type="button" data-action="pipeline-node" data-id="${esc(n.id)}" aria-pressed="${chosen?.id===n.id}"><span class="trace-meta">${esc(n.owner)} · ${esc(c.label(n.status))}${n.context?' · 前置步骤':''}</span><strong>${esc(n.title)}</strong>
-      ${predecessors.length?`<small>${esc(predecessors.join('、'))} → ${esc(n.relation||'下一步')}</small>`:''}</button></li>`;
-  }).join('')}</ol>`;
-  const layoutPicker=`<div class="layout-picker" aria-label="轨迹显示方式">${[['graph','流程图'],['list','步骤列表']].map(([id,name])=>`<button type="button" data-action="trace-layout" data-id="${id}" aria-pressed="${id===layout}">${name}</button>`).join('')}</div>`;
-  const plan=p.pipeline||p.proposal?.pipeline||[];
-  const filters=`<label class="graph-filters" for="pipeline-filter">科研阶段 <select id="pipeline-filter">${[['all','全部阶段'],...researchStages.map(s=>[s.id,s.title+' · '+stageStatus(s)]),['unclassified','历史未分类任务']].map(([id,name])=>`<option value="${id}" ${filter===id?'selected':''}>${esc(name)}</option>`).join('')}</select></label>`;
-  return `<div class="heading"><div><h2>研究轨迹</h2><p class="page-intro">${p.tasks.length} 项任务 · ${p.collaboration?.reviews?.length||0} 次复核</p></div></div>
-    ${plan.length?`<details class="disclosure"><summary>${p.intakeConfirmed?'课题研究计划':'CC 提议的研究计划'} · ${plan.length} 步</summary><div class="panel-body">${plan.map((step,i)=>`<div class="proposal-step"><span class="cyan">${i+1}</span><div><strong>${esc(step.title)}</strong><p>${esc(step.description)}</p></div></div>`).join('')}</div></details>`:''}
-    ${stageCouncilSummary(c)}${filters}${layoutPicker}${stage?panel(stage.title,`<div class="panel-body"><p><strong>产出：</strong>${esc(stage.output)}</p><p><strong>进入下一步的依据：</strong>${esc(stage.gate)}</p><p class="hint">${esc(stage.back)}</p><details><summary>记录研究者对此阶段的判断</summary><form id="stage-review-form" data-stage="${stage.id}"><label class="field"><span>依据 / 证据路径 / 需要返回的原因</span><textarea name="comment" required maxlength="10000" rows="3"></textarea></label><div class="actions"><button name="action" value="confirmed" ${busy(p)?'disabled':''}>确认本阶段证据</button><button name="action" value="reopened" ${busy(p)?'disabled':''}>返回此阶段继续研究</button></div></form></details></div>`):''}<div class="section-gap flowchart-section">${panel('执行与反馈',g.nodes.length?(layout==='list'?list:svg):'<p class="panel-body muted">这个阶段还没有任务或复核记录。</p>',`<span class="hint">${g.nodes.filter(n=>n.task||n.review||n.council).length} 个任务/评审/反馈节点</span>`)}</div>${chosen?panel('节点详情',`<div class="panel-body node-inspector" tabindex="-1"><div class="flex"><h2>${esc(chosen.title)}</h2>${badge(chosen.status)}</div><p class="message-text">${esc(chosen.detail)}</p>${chosen.council?councilNodeDetails(c,chosen):''}${chosen.task?`<p class="hint">科研阶段：${esc(stageName(chosen.task.researchStage))} · ${esc(chosen.owner)}</p><p>验收：${esc(chosen.task.acceptance||'见任务文档')}</p>${chosen.task.error?`<p class="red">${esc(chosen.task.error)}</p>`:''}<div class="actions">${button('doc','任务 MD','',`data-id="${chosen.task.documentId}"`)}${chosen.task.reportId?button('doc','结果 MD','',`data-id="${chosen.task.reportId}"`):''}${chosen.task.jobId?button('log','运行日志','',`data-id="${chosen.task.jobId}"`):''}${button('open-session','进入 CX 会话','',`data-id="${chosen.task.workerId}"`)}</div>`:''}${chosen.review?`<p><strong>证据：</strong>${esc(chosen.review.evidence)}</p><p><strong>给团队的交接：</strong>${esc(chosen.review.handoff)}</p><p>${esc(chosen.review.question)}</p>${chosen.review.userDecision?`<p class="green">研究者：${esc(chosen.review.userDecision.content)}</p>`:''}${button('doc','反馈 MD','',`data-id="${chosen.review.documentId}"`)}`:''}</div>`):'<p class="hint">选择上方节点，查看原因、证据、输出和交接文件。</p>'}<details class="research-guide"><summary>展开完整科研流程说明</summary>${researchStages.map(s=>`<article class="team-proposal"><h3>${s.title}</h3><p>产出：${s.output}</p><p>判断：${s.gate}</p><p class="hint">${s.back}</p></article>`).join('')}<p class="hint">这是面向实证/计算研究的工作框架，具体课题按研究设计调整。理论证明、质性研究等不能机械套用实验分支。</p></details>`;
+export function stageDetailPage(c,selected='',filter='question'){
+ const {p,panel,button,esc,badge,busy,noProject}=c;if(!p)return noProject();
+ const stage=researchStages.find(s=>s.id===filter),overview=pipelineOverview(p,c.state.jobs),step=overview.nodes.find(s=>s.id===filter);
+ if(!stage&&filter!=='unclassified')return stageDetailPage(c,selected,'question');
+ const g=graphData(p,filter),chosen=g.nodes.find(n=>n.id===selected),title=step?.title||'历史未分类任务';
+ let part='';
+ if(filter==='question')part=panel('研究方向与提案',`<div class="panel-body"><p class="message-text">${esc(p.researchTopic||p.brief||'与 CC 讨论研究目标、已有材料与边界。')}</p><div class="actions section-gap"><button data-view="mentor">打开立项讨论与提案评审 ↗</button></div></div>`);
+ if(['literature','benchmark'].includes(filter))part=benchmarkSummary(c,filter);
+ if(filter==='design')part=panel('CC 的执行安排',`<div class="panel-body">${p.executionPlan?`<h3>接下来做什么</h3><p class="message-text">${esc(p.executionPlan.summary)}</p><h3>为什么这样做</h3><p class="message-text">${esc(p.executionPlan.rationale)}</p>${button('doc','完整执行说明','',`data-id="${esc(p.executionPlan.documentId)}"`)}`:'<p class="hint">文献和评测方案形成后，CC 说明执行安排并组织团队。</p>'}<div class="actions section-gap"><button data-view="architecture">团队、模型与技能 ↗</button><button data-view="collaboration">进入协作台 ↗</button></div></div>`);
+ if(['analysis','writing'].includes(filter))part=stageCouncilSummary(c,filter==='analysis'?'results':'manuscript');
+ const records=g.nodes.filter(n=>!n.context),contextNodes=g.nodes.filter(n=>n.context);
+ const row=n=>`<button type="button" class="stage-record ${n.id===selected?'selected':''}" data-action="pipeline-node" data-id="${esc(n.id)}" ${n.id===selected?'aria-current="true"':''}><span><strong>${esc(n.title)}</strong><small>${esc(n.owner||'CC')} · ${esc(n.relation||'阶段记录')}</small></span>${badge(n.status)}<span aria-hidden="true">↗</span></button>`;
+ const history=panel('本步骤的任务、反馈与版本',records.length?records.map(row).join(''):'<p class="panel-body hint">此步骤还没有实际执行记录。开始后，任务、回报和评审会保存在这里。</p>');
+ let detail='';
+ if(chosen){
+  let body=`<div class="flex"><h2>${esc(chosen.title)}</h2>${badge(chosen.status)}</div><p class="message-text">${esc(chosen.detail)}</p>`;
+  if(chosen.notice)body+=button('doc','执行说明 MD','',`data-id="${esc(chosen.notice.documentId)}"`);
+  if(chosen.benchmark)body+=benchmarkNodeDetails(c,chosen);
+  if(chosen.council)body+=councilNodeDetails(c,chosen);
+  if(chosen.meeting)body+=meetingDetails(c,chosen.meeting);
+  if(chosen.task){const t=chosen.task;body+=`<p class="hint">${esc(stageName(t.researchStage))} · ${esc(chosen.owner)}</p><p>验收：${esc(t.acceptance||'见任务文档')}</p>${t.error?`<p class="red">${esc(t.error)}</p>`:''}<div class="actions">${t.documentId?button('doc','任务 MD','',`data-id="${esc(t.documentId)}"`):''}${t.reportId?button('doc','结果 MD','',`data-id="${esc(t.reportId)}"`):''}${t.jobId?button('log','运行日志','',`data-id="${esc(t.jobId)}"`):''}${button('open-session','进入 CX 会话','',`data-id="${esc(t.workerId)}"`)}</div>`;}
+  if(chosen.review){const r=chosen.review;body+=`<p><strong>证据：</strong>${esc(r.evidence)}</p><p><strong>共享交接：</strong>${esc(r.handoff)}</p>${r.question?`<p>${esc(r.question)}</p>`:''}${r.userDecision?`<p class="green">研究者：${esc(r.userDecision.content)}</p>`:''}${r.documentId?button('doc','反馈 MD','',`data-id="${esc(r.documentId)}"`):''}`;}
+  detail=panel('记录详情',`<div class="panel-body node-inspector" tabindex="-1">${body}</div>`);
+ }
+ const links=g.edges.filter(e=>!e.to.context).map(e=>`<li>${button('pipeline-node',esc(e.from.title),'',`data-id="${esc(e.from.id)}"`)}<span>→ ${esc(e.label||'下一步')} →</span>${button('pipeline-node',esc(e.to.title),'',`data-id="${esc(e.to.id)}"`)}</li>`).join('');
+ return `<div class="stage-breadcrumb"><button type="button" data-view="pipeline">← 返回研究流程</button><span>${step?`STEP ${String(step.index+1).padStart(2,'0')} / ${mapStages.length}`:'历史记录'}</span></div><div class="heading"><div><h2>${esc(title)}</h2><p class="page-intro">${esc(stage?.output||'保留历史任务，不根据名称猜测科研阶段。')}</p></div><span class="stage-detail-status">${step?.current?'● 当前步骤 · ':''}${esc(step?.label||'历史记录')}</span></div>
+ ${filter!=='question'&&filter!=='unclassified'?mentorPanel(c,filter):''}${part}<div class="stage-records">${detail}${history}</div>${links?`<details class="disclosure"><summary>查看本步骤的交接、调整与返回关系</summary><ul class="stage-relations">${links}</ul></details>`:''}${contextNodes.length?`<details class="disclosure"><summary>关联的前置记录</summary>${contextNodes.map(row).join('')}</details>`:''}
+ ${stage?`<details class="disclosure"><summary>阶段说明与研究者判断</summary><div class="panel-body"><p>进入下一步的依据：${esc(stage.gate)}</p><p class="hint">${esc(stage.back)}</p><form id="stage-review-form" data-stage="${stage.id}"><label class="field"><span>记录判断依据或返回原因（可选）</span><textarea name="comment" required maxlength="10000" rows="3"></textarea></label><div class="actions"><button name="action" value="confirmed" ${busy(p)?'disabled':''}>记录本阶段判断</button><button name="action" value="reopened" ${busy(p)?'disabled':''}>返回此阶段继续研究</button></div></form></div></details>`:''}`;
 }

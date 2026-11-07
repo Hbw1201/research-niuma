@@ -1,3 +1,4 @@
+import {seedBenchmark,benchmarkResponse} from './fixtures/benchmark-research.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -5,14 +6,14 @@ import path from 'node:path';
 import os from 'node:os';
 import { Store } from '../src/store.mjs';
 import { Runner, cliArgs, decodeEvent } from '../src/runner.mjs';
-import { Workflow, roles, validatePlan } from '../src/workflow.mjs';
+import { Workflow, validatePlan } from '../src/workflow.mjs';
 import { classifyProcess, scanSessions } from '../src/platform.mjs';
 import { startServer } from '../src/server.mjs';
 import { scanSkills } from '../src/skills.mjs';
 import {councilResult} from './fixtures/proposal-council.mjs';
 
 function temp(t){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'relay-test-'));t.after(()=>{const resolved=fs.realpathSync(dir);assert(resolved.startsWith(fs.realpathSync(os.tmpdir())+path.sep));fs.rmSync(resolved,{recursive:true,force:true});});return dir;}
-function fixture(t){const root=temp(t),store=new Store(root);t.after(()=>store.close());const p=store.newProject({title:'Test research',brief:'A real test boundary, no inference.'});p.autonomy.mode='assisted';p.modelPolicy.allowCCSwitch=false;return{root,store,p};}
+function fixture(t){const root=temp(t),store=new Store(root);t.after(()=>store.close());const p=store.newProject({title:'Test research',brief:'A real test boundary, no inference.'});seedBenchmark(p,store);p.autonomy.mode='assisted';p.modelPolicy.allowCCSwitch=false;return{root,store,p};}
 
 test('CLI args preserve prompts on stdin, sandbox, explicit resume IDs',()=>{
   const args=cliArgs('cx',{sessionId:'abc'});assert.deepEqual(args,['-a','never','-s','workspace-write','exec','resume','--json','--skip-git-repo-check','abc','-']);
@@ -49,30 +50,33 @@ test('native process exit zero plus error event is rejected',async t=>{
   await assert.rejects(runner.run({projectId:p.id,provider:'cx',kind:'test',title:'failure',executable:process.execPath,cwd:root,prompt:'x',args:['-e',`process.stdin.resume();console.log(JSON.stringify({type:'turn.failed',error:{message:'denied'}}))`]}),/denied/);
   assert.equal(store.state.jobs[0].status,'failed');
 });
-test('review gate blocks pending, revised, rejected scope and uncovered approval',t=>{
-  const {store,p}=fixture(t),runner=new Runner(store),flow=new Workflow(store,runner,()=>({clis:{cc:{available:true,path:'test'},cx:{available:true,path:'test'}}}));
-  p.questions=[{id:'q1',decision:'pending'},{id:'q2',decision:'rejected'}];assert.throws(()=>flow.plan(p.id),/批阅/);
-  p.questions[0].decision='revise';assert.throws(()=>flow.plan(p.id),/修改/);
-  p.questions[0].decision='approved';const task={title:'one',instructions:'do it',acceptance:'assert',questionIds:['q2']};
-  assert.throws(()=>validatePlan({tasks:[task]},p.questions),/未经/);
-  task.questionIds=['q1'];assert.equal(validatePlan({tasks:[task]},p.questions).tasks.length,1);
-  p.questions.push({id:'q3',decision:'approved'});assert.throws(()=>validatePlan({tasks:[task]},p.questions),/遗漏/);
+test('task scope references a confirmed goal while explicit legacy rejections stay excluded',t=>{
+  const {p}=fixture(t);p.questions=[{id:'q1',decision:'pending'},{id:'q2',decision:'rejected'}];
+  const task={title:'one',instructions:'do it',acceptance:'assert',researchStage:'pilot',questionIds:['q2']};
+  const plan={summary:'A small experiment',rationale:'Check the measurement before scaling',tasks:[task]};
+  assert.throws(()=>validatePlan(plan,p),/已否决/);
+  task.questionIds=['research-goal'];assert.equal(validatePlan(plan,p).tasks.length,1);
+  task.questionIds=['q1'];assert.throws(()=>validatePlan(plan,p),/未知/);
+  p.questions[0].decision='approved';assert.equal(validatePlan(plan,p).tasks.length,1);
+  assert.throws(()=>validatePlan({...plan,rationale:''},p),/文本不能为空/);
 });
-test('full orchestration contract: 4 perspectives → review → plan → bounded CX concurrency → CC report',async t=>{
+
+test('execution explanation → bounded CX concurrency → CC report without a questionnaire',async t=>{
   const {store,p}=fixture(t);store.state.settings.concurrency=2;
   const runner=new Runner(store);let active=0,max=0;
   runner.run=async args=>{
     active++;max=Math.max(max,active);await new Promise(r=>setTimeout(r,10));active--;
     const job={id:String(Math.random()),sessionId:'sid',status:'completed'};
-    if(args.kind==='brainstorm')return{job,structured:{summary:'summary',perspectives:roles.map(r=>({role:r.key,analysis:'independent analysis'})),questions:[{title:'Question?',why:'why',options:['A','B'],recommendation:'A'}]}};
-    if(args.kind==='plan')return{job,structured:{summary:'plan',tasks:[1,2,3].map(i=>({title:`task${i}`,instructions:'write a file',acceptance:'verify',questionIds:['q1'],workerId:`cx-${i}`}))}};
+    if(args.kind==='mentor-meeting')return {job,structured:benchmarkResponse(args.kind)};
+    if(args.kind==='feedback')return {job,structured:{summary:'Fixture work reviewed',assessment:'passed',evidence:'Synthetic report',reason:'Direction supported by fixture',decision:'finish',handoff:'Preserve evidence',question:'',nextTasks:[]}};
+    if(args.kind==='plan')return{job,structured:{summary:'plan',rationale:'Verify a small independent step first',tasks:[1,2,3].map(i=>({title:`task${i}`,instructions:'write a file',acceptance:'verify',questionIds:['research-goal'],workerId:`cx-${i}`,researchStage:'pilot'}))}};
     return{job,text:'# Report\nVerified fixture output.'};
   };
   const flow=new Workflow(store,runner,()=>({clis:{cc:{available:true,path:'test'},cx:{available:true,path:'test'}}}));
-  await flow.brainstorm(p.id);assert.equal(p.status,'awaiting_review');assert.equal(p.perspectives.length,4);
-  flow.review(p.id,{questionId:'q1',decision:'approved',answer:'A',comment:'Proceed'});
-  await flow.plan(p.id);assert.equal(p.tasks.length,3);assert.throws(()=>flow.review(p.id,{questionId:'q1',decision:'rejected',answer:'',comment:''}),/阶段/);
+  await flow.plan(p.id);assert.equal(p.tasks.length,3);assert.equal(p.questions.length,0);assert.equal(p.perspectives.length,0);
+  assert.match(p.executionPlan.rationale,/independent/);assert(p.documents.some(d=>d.kind==='execution-plan'));assert.throws(()=>flow.review(p.id,{}),/只读/);
   await flow.execute(p.id);assert.equal(p.status,'executed');assert.equal(max,2);assert.equal(new Set(p.tasks.map(t=>t.cwd)).size,3);assert(p.tasks.every(t=>fs.existsSync(path.join(t.cwd,'TASK.md'))));
+  assert.throws(()=>flow.summarize(p.id),/导师汇报/);p.autonomy.mode='assisted';await flow.collaborate(p.id);
   await flow.summarize(p.id);assert.equal(p.status,'completed');assert(p.documents.some(d=>d.name==='50-cc-summary.md'));
 });
 test('HTTP protects mutations, persists rules, switches workspaces and serves Markdown safely',async t=>{
@@ -98,10 +102,10 @@ test('topic intake has its own folder and requires explicit confirmation before 
   const runner=new Runner(store);let round=0;
   runner.run=async args=>({job:{id:args.id,sessionId:args.sessionId||(args.reviewerId&&args.reviewerId!=='cc'?`session-${args.reviewerId}`:'mentor-id')},structured:args.kind==='intake'?(++round===1?{phase:'clarifying',message:'What data is available?',direction:'',ideas:[],researchTopic:'',pipeline:[]}:{phase:'proposal',message:'Please confirm.',direction:'A testable direction',ideas:['A hypothesis'],researchTopic:'Confirmed topic',pipeline:[{title:'Baseline',description:'Implement and verify'}]}):{...councilResult(args.kind,args.reviewerId),...(args.kind==='proposal-synthesis'?{researchTopic:'Confirmed topic'}:{})}});
   const flow=new Workflow(store,runner,()=>({clis:{cc:{available:true,path:'test'}}}));
-  assert.throws(()=>flow.brainstorm(p.id),/确认科研/);assert.throws(()=>flow.activate(p.id),/先与/);
+  assert.throws(()=>flow.brainstorm(p.id),/确认科研/);assert.throws(()=>flow.activate(p.id,{reviewRoundId:p.proposalReviews.at(-1)?.id,sourceHash:p.proposalReviews.at(-1)?.finalHash}),/先与/);
   await flow.chat(p.id,'My initial idea');assert.equal(p.status,'defining');assert.equal(p.conversation.length,2);
   await flow.chat(p.id,'Here is my dataset');assert.equal(p.status,'proposal');assert.equal(p.intakeConfirmed,false);
-  flow.activate(p.id);assert.equal(p.status,'draft');assert.equal(p.pipeline.length,1);assert.equal(p.researchTopic,'Confirmed topic');
+  flow.activate(p.id,{reviewRoundId:p.proposalReviews.at(-1)?.id,sourceHash:p.proposalReviews.at(-1)?.finalHash});assert.equal(p.status,'draft');assert.equal(p.pipeline.length,1);assert.equal(p.researchTopic,'Confirmed topic');
   assert.match(fs.readFileSync(path.join(store.folder(p.id),'00-brief.md'),'utf8'),/Confirmed topic/);
 });
 

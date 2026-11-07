@@ -80,8 +80,9 @@ export class Leadership {
     const revision=p.steering.revision;
     const running=p.tasks.filter(t=>t.status==='running').map(t=>t.workerId);
     const prompt=`你是本项目的研究负责人 CC Leader，负责自主组织多个 Codex (CX)，不是仅提供建议的顾问。研究者已经允许你在下列边界内直接决定团队，不需要逐次采纳。
+当前文献与评测依据：${this.flow.benchmark.context(p)}
 研究目标：${p.researchTopic||p.title}\n${p.brief}
-已确认问卷：${JSON.stringify(p.questions)}
+历史明确决定（不是新问卷或审批门槛）：${JSON.stringify(p.questions)}
 调度原因：${reason}
 权限：最多 ${p.autonomy.maxWorkers} 个活跃 CX、项目并发最多 ${p.autonomy.maxParallel}；全工作区同时执行上限 ${store.state.settings.concurrency}。
 研究者的 Leader 要求：${p.autonomy.brief||'自主安排数量、分工、交接和模型，以获得可核验的研究证据。'}
